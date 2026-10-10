@@ -1,0 +1,46 @@
+{
+  "name": "prajeala",
+  "version": "0.1.0",
+  "description": "Foc pe ecran: overlay interactiv cu flăcări pentru desktop, aplicații și cursor.",
+  "main": "dist/main/index.mjs",
+  "private": true,
+  "license": "MIT",
+  "author": "FasTuber",
+  "homepage": "https://github.com/FasTuber/prajeala",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FasTuber/prajeala.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:watch": "node scripts/build.mjs --watch",
+    "icons": "node scripts/gen-icons.mjs",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron . --debug-hud",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "smoke": "npm run build && node scripts/smoke.mjs",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.19.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.12.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  },
+  "optionalDependencies": {
+    "get-windows": "^9.3.0",
+    "uiohook-napi": "^1.5.5"
+  }
+}
