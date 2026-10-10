@@ -209,7 +209,7 @@ export function toDipRect(b: { x: number; y: number; width: number; height: numb
   }
   if (process.platform === 'linux') {
     // X11 reports physical pixels; assume one global scale factor (the primary display's).
-    let scale = 1;
+    let scale: number;
     try {
       scale = screen.getPrimaryDisplay().scaleFactor || 1;
     } catch {
