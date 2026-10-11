@@ -56,6 +56,8 @@ export interface Settings {
    * `palette`; '' = use the built-in palette. Pro.
    */
   themeId: string;
+  /** Sparks and heat puffs on every keystroke (requires uiohook-napi). Pro. */
+  typingFire: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -77,6 +79,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   audioSource: 'microphone',
   audioGain: 1,
   themeId: '',
+  typingFire: false,
 });
 
 /** Theme ids are file names: lower-case slugs, at most 64 chars. */
@@ -211,6 +214,7 @@ export function normalizeSettings(input: unknown): Settings {
     audioSource: pickEnum(src.audioSource, AUDIO_SOURCES, d.audioSource),
     audioGain: pickNumber(src.audioGain, d.audioGain, L.audioGain.min, L.audioGain.max),
     themeId: typeof src.themeId === 'string' && THEME_ID_RE.test(src.themeId) ? src.themeId : d.themeId,
+    typingFire: pickBool(src.typingFire, d.typingFire),
   };
 }
 

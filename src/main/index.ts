@@ -14,6 +14,7 @@ import {
   type AudioStatus,
   type CursorEvent,
   type HostCapabilities,
+  type KeyEvent,
   type PointerButtonEvent,
   type Rect,
 } from '../shared/ipc';
@@ -144,6 +145,7 @@ async function main(): Promise<void> {
     platform: process.platform,
     smoke: cli.smoke,
     audioLoopback: loopbackAvailable(),
+    globalKeys: false,
   };
 
   const overlays = new OverlayManager({
@@ -197,6 +199,11 @@ async function main(): Promise<void> {
         };
       });
     },
+    onKey: (kind, t) => {
+      // Only the kind travels; nothing is logged (not even at debug level).
+      if (!effectiveSettings().typingFire) return;
+      overlays.sendToAll<KeyEvent>(IPC.key, () => ({ kind, t }));
+    },
   });
 
   let lastActiveWindow: ActiveWindowInfo | null = null;
@@ -212,7 +219,10 @@ async function main(): Promise<void> {
 
   cursor.start();
   capabilities.globalClicks = cursor.globalClicks;
-  log.info(`capabilities: clicks=${capabilities.globalClicks} activeWindow=${capabilities.activeWindow} smoke=${capabilities.smoke}`);
+  capabilities.globalKeys = cursor.globalKeys;
+  log.info(
+    `capabilities: clicks=${capabilities.globalClicks} keys=${capabilities.globalKeys} activeWindow=${capabilities.activeWindow} loopback=${capabilities.audioLoopback} smoke=${capabilities.smoke}`,
+  );
 
   // ── Actions shared by tray + shortcuts ─────────────────────────────────
   const testBurst = (strength = 1): void => {

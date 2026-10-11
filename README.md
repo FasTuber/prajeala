@@ -42,7 +42,8 @@ fereastra e click-through, deci lucrezi normal, doar că ecranul arde.
 | Teme | `classic`, `blue`, `green`, `plasma`, `ember`, `ice` (gheață/apă — curge în jos), `electric` (arcuri care trosnesc), `neon` (tuburi strălucitoare); fiecare temă = paletă + parametri de simulare; import/export JSON |
 | Intensități | `low`, `medium`, `high`, `inferno` |
 | Sunet | focul pulsează după muzică: microfon sau audio de sistem (`getUserMedia`), benzi bass/mid/high + detecție de beat; nimic nu se înregistrează sau trimite |
-| Free / Pro | versiunea Free are paleta `classic`, intensitate până la `medium`, fără foc pe ferestre, fără sunet și fără teme importate; **Pro** deblochează tot — vezi [Prăjeală Pro](#pro) |
+| Tastare | scântei și un puf de căldură la fiecare tastă (necesită `uiohook-napi`); procesul principal trimite doar *categoria* tastei (literă / spațiu / Enter / ștergere / navigare), niciodată tasta |
+| Free / Pro | versiunea Free are paleta `classic`, intensitate până la `medium`, fără foc pe ferestre, fără sunet, fără teme importate și fără foc la tastare; **Pro** deblochează tot — vezi [Prăjeală Pro](#pro) |
 
 ### Instalare
 
@@ -61,7 +62,7 @@ fereastră proprie). Pentru instalatoare gata de distribuit vezi [Dezvoltare](#d
 Cele două dependențe native sunt **opționale** — dacă nu se pot instala pe sistemul tău, aplicația pornește
 oricum, doar cu funcțiile respective dezactivate:
 
-- `uiohook-napi` → click-uri globale (explozii la click);
+- `uiohook-napi` → click-uri globale (explozii la click) și taste (foc la tastare);
 - `get-windows` → fereastra activă (foc pe aplicații).
 
 ### Meniul din tray
@@ -74,7 +75,7 @@ Click pe icoana cu flacără din tray:
   **Import theme…**, **Export current theme…**, **Open themes folder**;
 - **Cursor** — Off / Halo / Trail / Comet;
 - comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **Scântei**,
-  **Sound reactive** (Pro);
+  **Sound reactive** (Pro), **Typing fire** (Pro, necesită `uiohook-napi`);
 - **Sound** — starea curentă (ascultă / permisiune refuzată / fără dispozitiv), sursa (microfon sau audio de
   sistem) și sensibilitatea (Low / Normal / High / Max);
 - **FPS maxim**, **Pornire la login**, **HUD de debug**;
@@ -111,6 +112,16 @@ exportate din tray ca punct de plecare; fișierele importate ajung în `userData
 Câmpurile lipsă iau valorile implicite, numerele sunt limitate la intervale sigure, iar fișierele invalide
 sunt ignorate cu un avertisment în log (`src/shared/theme.ts` → `validateTheme`).
 
+### Foc la tastare
+
+Cu **Typing fire** pornit, fiecare tastă apăsată (oriunde în sistem, prin `uiohook-napi`) aruncă scântei și un
+puf de căldură la cursor — sau, când mouse-ul e pe alt monitor, la marginea de jos a ferestrei active. Tastatul
+rapid acumulează un „combo” care face pufurile mai mari; **Enter** face o mică explozie, **Backspace** un puf
+rece, fumuriu. Confidențialitate: hook-ul clasifică tasta pe loc în una din categoriile
+`char / space / enter / backspace / modifier / navigation / other` și doar categoria ajunge în renderer;
+codul tastei nu e nici memorat, nici logat, nici trimis. Setare `typingFire` (implicit oprit); `--no-hooks`
+dezactivează complet hook-ul. În mock: tasta `k` comută, `?typing=sim` tastează singur.
+
 ### Reacție la sunet
 
 Cu **Sound reactive** pornit, renderer-ul deschide un `AudioContext` + `AnalyserNode` peste fluxul de la
@@ -138,6 +149,7 @@ procesul: nu se înregistrează, nu se redă, nu se trimite nicăieri.
 | Intensitate | până la `medium` | până la `inferno` |
 | Foc pe fereastra activă | – | ✓ |
 | Reacție la sunet | – | ✓ |
+| Foc la tastare | – | ✓ |
 | Cursor, click-uri, foc la baza ecranului, scântei | ✓ | ✓ |
 
 Limitele stau într-un singur loc, `FREE_LIMITS` din `src/shared/license.ts`; procesul principal trimite
@@ -201,7 +213,7 @@ electron . [opțiuni]        # sau: npm start -- [opțiuni]
 | `--smoke` | mod de test: randează câteva cadre, tipărește `PRAJEALA_SMOKE_RESULT {json}` și iese cu 0/1 |
 | `--smoke-frames=N` | câte cadre să randeze în modul `--smoke` (implicit 90) |
 | `--software-gl` | forțează randarea software (SwiftShader) — util în mașini virtuale / CI |
-| `--no-hooks` | nu încărca `uiohook-napi` (fără explozii la click) |
+| `--no-hooks` | nu încărca `uiohook-napi` (fără explozii la click, fără foc la tastare) |
 | `--no-active-window` | nu urmări fereastra activă |
 | `--display=N` | overlay doar pe monitorul cu indexul N |
 | `--cursor-hz=N` | frecvența de citire a poziției cursorului (implicit ~120) |
@@ -333,8 +345,12 @@ keep working underneath:
   (loopback). Bass/mid/high bands with auto-levelling and beat detection; nothing is recorded or sent
   anywhere. `?audio=sim` in the browser plays a built-in fake track. Settings `audioReactive`,
   `audioSource`, `audioGain`; macOS asks for microphone access once.
+- **Typing fire** (Pro, needs `uiohook-napi`): sparks and a puff of heat on every keystroke, at the cursor
+  (fast typing builds a combo; Enter bursts, Backspace puffs smoke). Privacy: the hook only forwards the key's
+  *category* (character / space / enter / backspace / modifier / navigation); the key itself is never stored,
+  logged or sent. Setting `typingFire`; `?typing=sim` in the browser types by itself.
 - **Free / Pro**: Free has the `classic` palette, intensity up to `medium`, no fire on windows, no sound
-  reactivity and no imported themes; Pro unlocks everything (see [Pro](#pro-1)).
+  reactivity, no imported themes and no typing fire; Pro unlocks everything (see [Pro](#pro-1)).
 
 ### Install
 
@@ -354,7 +370,8 @@ install, the app still runs with click bursts / active-window fire disabled.
 
 Pause/Resume · Intensity (Low/Medium/High/Inferno) · Theme (built-ins, imported, import/export) · Cursor
 mode · toggles for click bursts,
-active-window fire, screen-bottom fire, sparks and sound reactivity · Sound (status, source, sensitivity) ·
+active-window fire, screen-bottom fire, sparks, sound reactivity and typing fire · Sound (status, source,
+sensitivity) ·
 max FPS · launch at login · debug HUD · Licence (enter key / clipboard / check online / buy) · test burst ·
 Quit. Items marked "(Pro)" are disabled on Free.
 
@@ -367,6 +384,7 @@ Quit. Items marked "(Pro)" are disabled on Free.
 | Intensity | up to `medium` | up to `inferno` |
 | Fire on the active window | – | ✓ |
 | Sound reactivity | – | ✓ |
+| Typing fire | – | ✓ |
 | Cursor fire, click bursts, screen-bottom fire, sparks | ✓ | ✓ |
 
 The limits live in one place (`FREE_LIMITS`, `src/shared/license.ts`). The main process sends the renderer
@@ -410,7 +428,7 @@ Lemon Squeezy keys work. In CI, store the public key in the `PRAJEALA_LICENSE_PU
 | `--smoke` | test mode: render a few frames, print `PRAJEALA_SMOKE_RESULT {json}`, exit 0/1 |
 | `--smoke-frames=N` | frames to render in `--smoke` mode (default 90) |
 | `--software-gl` | force software rendering (SwiftShader) — VMs / CI |
-| `--no-hooks` | do not load `uiohook-napi` (no click bursts) |
+| `--no-hooks` | do not load `uiohook-napi` (no click bursts, no typing fire) |
 | `--no-active-window` | do not track the active window |
 | `--display=N` | overlay only display index N |
 | `--cursor-hz=N` | cursor polling rate (default ~120) |

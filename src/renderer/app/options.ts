@@ -13,6 +13,8 @@
  *   ?free=1       mock only: pretend there is no licence (Free tier limits apply)
  *   ?audio=sim    drive sound reactivity from a built-in fake track (no microphone;
  *                 also turns audioReactive on); ?audio=1|mic|system set the real source
+ *   ?typing=1     turn typing fire on (mock: real key presses on the page);
+ *   ?typing=sim   mock only: fake keystrokes at a typing rhythm
  * Mock-only settings overrides: enabled, intensity, palette, cursorMode (or cursor),
  * bottom, window, sparks, bursts, simScale, fps, pressure, gain (audioGain).
  */
@@ -35,6 +37,8 @@ export interface RendererOptions {
   freeTier: boolean;
   /** `?audio=sim`: fake music instead of a real capture. */
   audioSim: boolean;
+  /** `?typing=sim`: mock only, synthetic keystrokes. */
+  typingSim: boolean;
   settingsOverrides: Partial<Settings>;
 }
 
@@ -70,6 +74,9 @@ export function parseOptions(search: string): RendererOptions {
     if (audio === 'system' || audio === 'mic' || audio === 'microphone') overrides.audioSource = audio === 'system' ? 'system' : 'microphone';
   }
   if (params.has('gain')) overrides.audioGain = Number(params.get('gain'));
+  const typing = params.get('typing');
+  const typingSim = typing === 'sim';
+  if (typing !== null) overrides.typingFire = typingSim || flag(params, 'typing');
   let pin: RendererOptions['pin'] = null;
   const pinRaw = params.get('pin');
   if (pinRaw) {
@@ -90,6 +97,7 @@ export function parseOptions(search: string): RendererOptions {
     loseContextAt: Math.max(0, Number(params.get('losectx') ?? 0) || 0),
     freeTier: flag(params, 'free'),
     audioSim,
+    typingSim,
     settingsOverrides: overrides,
   };
 }

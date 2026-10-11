@@ -41,6 +41,8 @@ export interface TierLimits {
   audioReactive: boolean;
   /** Imported JSON themes (settings.themeId). */
   customThemes: boolean;
+  /** Sparks on keystrokes. */
+  typingFire: boolean;
 }
 
 /** What the Free tier can do. Change the product here, nowhere else. */
@@ -50,6 +52,7 @@ export const FREE_LIMITS: Readonly<TierLimits> = Object.freeze({
   burnActiveWindow: false,
   audioReactive: false,
   customThemes: false,
+  typingFire: false,
 });
 
 export const PRO_LIMITS: Readonly<TierLimits> = Object.freeze({
@@ -58,6 +61,7 @@ export const PRO_LIMITS: Readonly<TierLimits> = Object.freeze({
   burnActiveWindow: true,
   audioReactive: true,
   customThemes: true,
+  typingFire: true,
 });
 
 export function limitsFor(tier: Tier): Readonly<TierLimits> {
@@ -99,6 +103,7 @@ export function applyTierLimits(settings: Settings, tier: Tier): Settings {
   if (!limits.burnActiveWindow) out.burnActiveWindow = false;
   if (!limits.audioReactive) out.audioReactive = false;
   if (!limits.customThemes) out.themeId = '';
+  if (!limits.typingFire) out.typingFire = false;
   return out;
 }
 
@@ -115,6 +120,8 @@ export function isLockedForTier(tier: Tier, key: keyof Settings, value: unknown)
       return value === true && !limitsFor(tier).audioReactive;
     case 'themeId':
       return typeof value === 'string' && value.length > 0 && !limitsFor(tier).customThemes;
+    case 'typingFire':
+      return value === true && !limitsFor(tier).typingFire;
     default:
       return false;
   }

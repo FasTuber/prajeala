@@ -8,6 +8,7 @@ import type {
   CursorEvent,
   DisplayInfo,
   HostCapabilities,
+  KeyEvent,
   PointerButtonEvent,
   PrajealaApi,
   RendererReadyReport,
@@ -27,6 +28,7 @@ import { FireCursor } from '../cursor/FireCursor';
 import { BurstEmitter } from '../emitters/BurstEmitter';
 import { CursorEmitter } from '../emitters/CursorEmitter';
 import { EmitterContext, type Emitter } from '../emitters/EmitterContext';
+import { KeyEmitter } from '../emitters/KeyEmitter';
 import { ScreenBottomEmitter } from '../emitters/ScreenBottomEmitter';
 import { WindowFrameEmitter } from '../emitters/WindowFrameEmitter';
 import { Device } from '../gl/Device';
@@ -80,6 +82,7 @@ export class App {
   private readonly burstEmitter: BurstEmitter;
   private readonly windowEmitter = new WindowFrameEmitter();
   private readonly bottomEmitter = new ScreenBottomEmitter();
+  private readonly keyEmitter: KeyEmitter;
   private readonly emitters: Emitter[];
   private readonly simParams: SimParams = {
     heatDissipation: 0.93,
@@ -130,7 +133,8 @@ export class App {
     this.ctx = new EmitterContext(this.queue, this.sparks);
     this.cursorEmitter = new CursorEmitter(this.cursor, this.ctx);
     this.burstEmitter = new BurstEmitter(this.ctx);
-    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.bottomEmitter];
+    this.keyEmitter = new KeyEmitter(this.cursor);
+    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.bottomEmitter, this.keyEmitter];
     this.warmupPending = options.warmup;
     this.look.view = options.view;
   }
@@ -415,6 +419,7 @@ export class App {
     this.unsubscribers.push(
       api.onCursor((e) => this.handleCursor(e)),
       api.onPointerButton((e) => this.handlePointerButton(e)),
+      api.onKey((e) => this.handleKey(e)),
       api.onActiveWindow((e) => this.handleActiveWindow(e)),
       api.onSettings((s) => this.applySettings(s)),
       api.onDisplay((d) => this.handleDisplay(d)),
@@ -443,8 +448,14 @@ export class App {
     this.burstEmitter.trigger(p.x, p.y, Number.isFinite(p.strength) ? p.strength : this.preset.burst);
   }
 
+  private handleKey(e: KeyEvent): void {
+    if (!this.settings.enabled || !this.settings.typingFire) return;
+    this.keyEmitter.push(e.kind);
+  }
+
   private handleActiveWindow(e: ActiveWindowEvent | null): void {
     this.windowEmitter.setTarget(e);
+    this.keyEmitter.setWindowRect(e && !e.isSelf && e.intersects ? e.bounds : null);
   }
 
   private handleDisplay(d: DisplayInfo): void {
@@ -705,6 +716,7 @@ export class App {
     if (s.clickBursts) active.push(`burst(${this.burstEmitter.total})${this.burstEmitter.active ? '*' : ''}`);
     if (s.burnActiveWindow) active.push(`window${this.windowEmitter.visible ? '*' : ''}`);
     if (s.screenBottomFire) active.push('bottom*');
+    if (s.typingFire) active.push(`keys(${this.keyEmitter.total})${this.keyEmitter.active ? '*' : ''} combo ${this.keyEmitter.combo.toFixed(2)}`);
     if (s.audioReactive) {
       const a = this.ctx.audio;
       const st = this.audio?.currentStatus;

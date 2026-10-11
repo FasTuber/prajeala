@@ -12,6 +12,7 @@ import {
   type CursorEvent,
   type DisplayInfo,
   type HostCapabilities,
+  type KeyEvent,
   type PointerButtonEvent,
   type PrajealaApi,
   type RendererReadyReport,
@@ -54,6 +55,7 @@ const api: PrajealaApi = {
 
   onCursor: (cb) => subscribe<CursorEvent>(IPC.cursor, cb),
   onPointerButton: (cb) => subscribe<PointerButtonEvent>(IPC.pointerButton, cb),
+  onKey: (cb) => subscribe<KeyEvent>(IPC.key, cb),
   onActiveWindow: (cb) => subscribe<ActiveWindowEvent | null>(IPC.activeWindow, cb),
   onSettings: (cb) => subscribe<Settings>(IPC.settings, cb),
   onDisplay: (cb) => subscribe<DisplayInfo>(IPC.display, cb),

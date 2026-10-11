@@ -4,13 +4,16 @@
  * when the mouse is idle, from a synthetic path; mouse buttons become bursts.
  *
  * Dev keys: 1-4 intensity · p palette · c cursor mode · b bottom fire ·
- * w fake window · s sparks · m sound reactivity · h HUD · space burst · Esc toggle enabled.
+ * w fake window · s sparks · m sound reactivity · k typing fire · h HUD ·
+ * space burst · Esc toggle enabled.
  */
 import type {
   ActiveWindowEvent,
   CursorEvent,
   DisplayInfo,
   HostCapabilities,
+  KeyEvent,
+  KeyKind,
   PointerButtonEvent,
   PrajealaApi,
   RendererReadyReport,
@@ -20,6 +23,7 @@ import type {
 import { FREE_LICENSE_INFO, applyTierLimits, parseLicenseKey, type LicenseActionResult, type LicenseInfo } from '../../shared/license';
 import { CURSOR_MODES, INTENSITIES, PALETTES, mergeSettings, normalizeSettings, type Settings } from '../../shared/settings';
 import { BUILTIN_THEMES, type ThemeDefinition } from '../../shared/theme';
+import { classifyDomKey } from '../../main/keys';
 import type { RendererOptions } from '../app/options';
 import { SyntheticCursor } from './SyntheticCursor';
 
@@ -43,6 +47,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   let settings: Settings = normalizeSettings(options.settingsOverrides);
   const cursor = new Signal<CursorEvent>();
   const button = new Signal<PointerButtonEvent>();
+  const key = new Signal<KeyEvent>();
   const activeWindow = new Signal<ActiveWindowEvent | null>();
   const settingsSignal = new Signal<Settings>();
   const displaySignal = new Signal<DisplayInfo>();
@@ -91,6 +96,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     platform: 'browser',
     smoke: options.smoke,
     audioLoopback: false,
+    globalKeys: true,
   });
 
   const now = (): number => performance.now() - start;
@@ -121,6 +127,22 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     settingsSignal.emit(effective());
     if (effective().palette !== before) themeSignal.emit(currentTheme());
   };
+  // Typing fire: every key press on the page counts (the dev keys below as well).
+  window.addEventListener('keydown', (e) => {
+    if (!e.repeat) key.emit({ kind: classifyDomKey(e.key), t: now() });
+  });
+  if (options.typingSim) {
+    // Fake typist: ~7 keys/s with pauses, a space every few letters, Enter now and then.
+    let typed = 0;
+    const tick = (): void => {
+      typed++;
+      const kind: KeyKind = typed % 23 === 0 ? 'enter' : typed % 17 === 0 ? 'backspace' : typed % 6 === 0 ? 'space' : 'char';
+      key.emit({ kind, t: now() });
+      const pause = typed % 40 === 0 ? 1800 : 90 + Math.random() * 140;
+      setTimeout(tick, pause);
+    };
+    setTimeout(tick, 500);
+  }
   window.addEventListener('keydown', (e) => {
     switch (e.key) {
       case '1':
@@ -146,6 +168,9 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
         break;
       case 'm':
         setSettings({ audioReactive: !settings.audioReactive });
+        break;
+      case 'k':
+        setSettings({ typingFire: !settings.typingFire });
         break;
       case 'w':
         fakeWindow = !fakeWindow;
@@ -239,6 +264,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
       return off;
     },
     onPointerButton: (cb) => button.on(cb),
+    onKey: (cb) => key.on(cb),
     onActiveWindow: (cb) => activeWindow.on(cb),
     onSettings: (cb) => settingsSignal.on(cb),
     onDisplay: (cb) => displaySignal.on(cb),

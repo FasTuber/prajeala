@@ -62,6 +62,18 @@ export interface PointerButtonEvent {
   t: number;
 }
 
+/**
+ * Coarse class of a pressed key. Deliberately lossy: the renderer must never
+ * learn WHICH letter was typed, only that one was.
+ */
+export type KeyKind = 'char' | 'space' | 'enter' | 'backspace' | 'modifier' | 'navigation' | 'other';
+
+export interface KeyEvent {
+  kind: KeyKind;
+  /** Milliseconds since app start (main-process clock). */
+  t: number;
+}
+
 export interface ActiveWindowEvent {
   /** Window title (may be empty when the OS refuses to disclose it). */
   title: string;
@@ -107,6 +119,8 @@ export interface HostCapabilities {
   smoke: boolean;
   /** System-audio (loopback) capture can be served by the host (Windows). Optional for older hosts. */
   audioLoopback?: boolean;
+  /** Global keystrokes are delivered (uiohook running) → typing fire possible. */
+  globalKeys?: boolean;
 }
 
 /** Sound-reactivity state reported by a renderer (shown in the tray). */
@@ -122,6 +136,8 @@ export const IPC = {
   // main → renderer (send)
   cursor: 'prajeala:cursor',
   pointerButton: 'prajeala:pointer-button',
+  /** A key was pressed (kind only, never the key itself). */
+  key: 'prajeala:key',
   activeWindow: 'prajeala:active-window',
   settings: 'prajeala:settings',
   display: 'prajeala:display',
@@ -180,6 +196,7 @@ export interface PrajealaApi {
 
   onCursor(cb: (e: CursorEvent) => void): Unsubscribe;
   onPointerButton(cb: (e: PointerButtonEvent) => void): Unsubscribe;
+  onKey(cb: (e: KeyEvent) => void): Unsubscribe;
   onActiveWindow(cb: (e: ActiveWindowEvent | null) => void): Unsubscribe;
   onSettings(cb: (s: Settings) => void): Unsubscribe;
   onDisplay(cb: (d: DisplayInfo) => void): Unsubscribe;

@@ -82,6 +82,7 @@ describe('normalizeSettings', () => {
       audioSource: 'system',
       audioGain: 2,
       themeId: 'lava-lamp',
+      typingFire: true,
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
@@ -97,6 +98,7 @@ describe('normalizeSettings', () => {
       'showDebugHud',
       'licenseOnlineCheck',
       'audioReactive',
+      'typingFire',
     ] as const;
 
     it.each(boolKeys)('%s accepts true/false and falls back to the default otherwise', (key) => {

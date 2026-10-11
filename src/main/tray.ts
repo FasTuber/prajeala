@@ -182,6 +182,7 @@ export class TrayController {
     );
     const windowAllowed = limitsFor(tier).burnActiveWindow;
     const audioAllowed = limitsFor(tier).audioReactive;
+    const typingAllowed = limitsFor(tier).typingFire;
 
     const cursor: MenuItemConstructorOptions[] = CURSOR_MODES.map((value) => ({
       label: CURSOR_LABELS[value],
@@ -247,6 +248,13 @@ export class TrayController {
         checked: s.audioReactive,
         enabled: audioAllowed,
         click: () => this.actions.updateSettings({ audioReactive: !this.actions.getSettings().audioReactive }),
+      },
+      {
+        label: lock(caps.globalKeys ? 'Typing fire' : 'Typing fire (needs uiohook)', !typingAllowed),
+        type: 'checkbox',
+        checked: s.typingFire,
+        enabled: caps.globalKeys === true && typingAllowed,
+        click: () => this.actions.updateSettings({ typingFire: !this.actions.getSettings().typingFire }),
       },
       { label: 'Sound', submenu: this.buildAudioSubmenu(s, caps, audioAllowed) },
       {
