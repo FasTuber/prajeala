@@ -158,12 +158,20 @@ const fmt = (v) => (v === undefined || v === null ? 'n/a' : typeof v === 'object
 function summarize(r) {
   const displays = Array.isArray(r.displays) ? r.displays : [];
   const first = displays[0] ?? {};
-  const ready = r.ready ?? first.ready ?? first;
-  const stats = r.stats ?? first.stats ?? first;
+  // The main process reports per-overlay arrays: reports[] (ready) and stats[].
+  const reports = Array.isArray(r.reports) ? r.reports : [];
+  const statsList = Array.isArray(r.stats) ? r.stats : [];
+  const ready = reports[0] ?? (r.ready && typeof r.ready === 'object' ? r.ready : undefined) ?? first.ready ?? first;
+  const stats = statsList[0] ?? (r.stats && !Array.isArray(r.stats) ? r.stats : undefined) ?? first.stats ?? first;
   const pick = (...candidates) => candidates.find((v) => v !== undefined && v !== null);
   return {
     ok: r.ok,
-    displays: pick(typeof r.displays === 'number' ? r.displays : undefined, displays.length || undefined, r.displayCount),
+    displays: pick(
+      typeof r.displays === 'number' ? r.displays : undefined,
+      displays.length || undefined,
+      reports.length || undefined,
+      r.displayCount,
+    ),
     webgl2: pick(r.webgl2, ready.webgl2),
     floatTextures: pick(r.floatTextures, ready.floatTextures),
     renderer: pick(r.renderer, ready.renderer),
