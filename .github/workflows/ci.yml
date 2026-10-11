@@ -40,6 +40,9 @@ jobs:
       - name: Icons are up to date
         run: node scripts/gen-icons.mjs --check
 
+      - name: Website builds
+        run: node scripts/build-web.mjs
+
       - name: Install Electron runtime libraries + Xvfb
         # Ubuntu 24.04 renamed several libs with a "t64" suffix and dropped the
         # old names, so try the new name first and fall back to the old one.

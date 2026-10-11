@@ -269,10 +269,28 @@ Detalii, diagrame și decizii: [`docs/PLAN.md`](docs/PLAN.md).
 - Intensitatea `inferno` crește raza și bugetul de scântei — e gândită pentru demo, nu pentru lucru.
 - Dacă nu există `EXT_color_buffer_float`, simularea cade pe texturi RGBA8 (merge, dar mai puțin fin).
 
+### Pagina web
+
+`web/` conține landing page-ul de o pagină (RO/EN) cu **demo WebGL live** — renderer-ul rulează chiar în
+browser, în modul mock, cu comutatoare pentru temă, intensitate, sunet simulat și tastare simulată — plus
+tabelul Free vs Pro, butonul de cumpărare și link-urile de descărcare.
+
+```bash
+npm run build:web                     # dist/web/ (index.html, demo.js, renderer/, icon)
+npx serve dist/web                    # sau orice server static
+PRAJEALA_BUY_URL=https://… PRAJEALA_PRICE="€9" PRAJEALA_DOWNLOAD_URL=https://… npm run build:web
+```
+
+`.github/workflows/pages.yml` publică `dist/web` pe **GitHub Pages** (activează Pages cu sursa „GitHub
+Actions”; variabilele de repo `PRAJEALA_BUY_URL`, `PRAJEALA_PRICE`, `PRAJEALA_DOWNLOAD_URL` completează butonul
+de cumpărare, prețul și link-urile). Pagina vorbește cu renderer-ul prin `window.prajealaDemo` (API-ul mock,
+expus doar când lipsește puntea Electron).
+
 ### Dezvoltare
 
 ```bash
 npm run build        # bundle main / preload / renderer în dist/ (esbuild)
+npm run build:web    # build + pagina web în dist/web/
 npm run build:watch  # rebuild la fiecare modificare
 npm run dev          # build + pornire cu --debug-hud
 npm run typecheck    # tsc --noEmit
@@ -301,7 +319,8 @@ src/main/       procesul principal: overlay-uri, tracker cursor/fereastră, tray
 src/preload/    puntea contextBridge (window.prajeala)
 src/renderer/   simularea WebGL2, emițătorii, scânteile, HUD-ul de debug, pagina de licență
 src/shared/     contractul comun: settings.ts, ipc.ts, palettes.ts, theme.ts, license.ts (pure, testate cu Vitest)
-scripts/        build.mjs (esbuild), smoke.mjs, gen-icons.mjs, license-keygen.mjs, license-sign.mjs
+scripts/        build.mjs (esbuild), build-web.mjs, smoke.mjs, gen-icons.mjs, license-keygen.mjs, license-sign.mjs
+web/            landing page cu demo WebGL (index.html, demo.js)
 tests/          teste unitare
 assets/         icoane generate (app + tray)
 docs/           PLAN.md
@@ -470,10 +489,13 @@ to RGBA8 textures.
 
 ### Development
 
-`npm run build` / `build:watch` / `dev` / `typecheck` / `lint` / `test` / `smoke` / `icons` /
+`npm run build` / `build:watch` / `build:web` / `dev` / `typecheck` / `lint` / `test` / `smoke` / `icons` /
 `license:keygen` / `license:sign` / `pack` / `dist` — see the Romanian section above for what each does, and
-the project layout there. CI runs typecheck, lint, tests, build and the Xvfb smoke test on every push, and
-builds installers on `v*` tags or manual dispatch. The renderer also runs without Electron behind a static
+the project layout there. CI runs typecheck, lint, tests, build, the website build and the Xvfb smoke test on
+every push, and builds installers on `v*` tags or manual dispatch. `web/` is the one-page site with the live
+WebGL demo (the renderer in mock mode), Free vs Pro and the buy button; `npm run build:web` writes it to
+`dist/web`, and `.github/workflows/pages.yml` publishes it to GitHub Pages (repo variables
+`PRAJEALA_BUY_URL`, `PRAJEALA_PRICE`, `PRAJEALA_DOWNLOAD_URL`). The renderer also runs without Electron behind a static
 server (`npx serve dist/renderer`): with no preload bridge it uses an in-page mock API (Pro demo; `?free=1`
 simulates Free).
 

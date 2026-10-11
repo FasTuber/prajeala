@@ -164,7 +164,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/renderer/**'],
+    files: ['src/renderer/**', 'web/**/*.js'],
     languageOptions: { globals: browserGlobals },
   },
   {
