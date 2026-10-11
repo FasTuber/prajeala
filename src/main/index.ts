@@ -92,6 +92,14 @@ if (!app.requestSingleInstanceLock()) {
     /* intentionally empty */
   });
 
+  // No text field needs spell-checking, and on Linux the checker downloads Hunspell
+  // dictionaries from Google as soon as a session exists: keep the app silent on the
+  // network (licence checks aside). Must run before the default session is created.
+  app.on('session-created', (s) => {
+    s.setSpellCheckerEnabled(false);
+    s.setSpellCheckerLanguages([]);
+  });
+
   app.on('before-quit', () => {
     runtime?.store.flushSync();
   });
