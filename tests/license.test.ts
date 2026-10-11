@@ -341,8 +341,12 @@ describe('LicenseManager', () => {
     expect(m.status()).toMatchObject({ tier: 'free', notice: 'license_key not found.' });
   });
 
-  it('honours the development tier override', () => {
-    expect(manager(fakeFetch({}), {}, { forceTier: 'free' }).load()).toMatchObject({ tier: 'free', pro: false });
+  it('honours the development tier override', async () => {
+    const free = manager(fakeFetch({}), {}, { forceTier: 'free' });
+    expect(free.load()).toMatchObject({ tier: 'free', pro: false, trialDaysLeft: 0 });
+    // licences still count, so the purchase flow can be tested without waiting for the trial
+    const { key } = issueKey(privateKeyPem, { to: 'QA' });
+    expect(await free.activate(key)).toMatchObject({ ok: true, status: { tier: 'pro', pro: true } });
     clock = T0 + 100 * DAY_MS;
     expect(manager(fakeFetch({}), {}, { forceTier: 'pro' }).load()).toMatchObject({ pro: true });
   });

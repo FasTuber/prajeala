@@ -66,7 +66,10 @@ export interface LicenseManagerOptions {
   fetch: FetchLike;
   platform: string;
   now?: () => number;
-  /** Development override (`--force-tier`, unpackaged builds only). */
+  /**
+   * Development override (`--force-tier`, unpackaged builds only): `free` skips
+   * the trial (licences still count, to test the purchase flow), `pro` unlocks everything.
+   */
   forceTier?: 'free' | 'pro' | null;
   revalidateEveryMs?: number;
 }
@@ -136,7 +139,7 @@ export class LicenseManager extends EventEmitter {
       base.licensee = lic.licensee;
       base.keyHint = maskKey(lic.key);
       base.lastValidatedAt = lic.lastValidatedAt;
-    } else {
+    } else if (this.options.forceTier !== 'free') {
       const trial = trialState(this.data.firstRunAt, this.now(), product.trialDays);
       if (trial.active) {
         base.tier = 'trial';
@@ -148,7 +151,6 @@ export class LicenseManager extends EventEmitter {
       }
     }
     if (this.options.forceTier === 'pro' && !base.pro) Object.assign(base, { tier: 'pro', pro: true });
-    if (this.options.forceTier === 'free') Object.assign(base, { tier: 'free', pro: false, trialDaysLeft: 0 });
     return base;
   }
 

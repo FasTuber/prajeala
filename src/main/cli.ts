@@ -20,8 +20,9 @@
  *                           Linux only: add --enable-transparent-visuals and
  *                           --disable-gpu-compositing (needed on some X11 setups).
  *   --settings              open the settings window right away.
- *   --force-tier=free|pro   development only (ignored in packaged builds): pretend
- *                           to be a free or a Pro install, regardless of licence/trial.
+ *   --force-tier=free|pro   development only (ignored in packaged builds): `free`
+ *                           skips the Pro trial (licences still count), `pro`
+ *                           unlocks every Pro feature.
  */
 
 export interface CliOptions {
