@@ -10,6 +10,7 @@ import { Notification, app, clipboard, dialog, ipcMain, shell } from 'electron';
 import {
   IPC,
   type ActiveWindowEvent,
+  type AudioStatus,
   type CursorEvent,
   type HostCapabilities,
   type PointerButtonEvent,
@@ -18,6 +19,7 @@ import {
 import { applyTierLimits, type LicenseActionResult } from '../shared/license';
 import type { Settings } from '../shared/settings';
 import { ActiveWindowTracker, type ActiveWindowInfo } from './active-window-tracker';
+import { ensureMicrophoneAccess, installAudioPermissions, loopbackAvailable } from './audio-permissions';
 import { parseCli, type CliOptions } from './cli';
 import { CursorTracker, type CursorSample } from './cursor-tracker';
 import { rectCenter, rectContainsPoint, rectsIntersect, toLocalPoint, toLocalRect } from './geometry';
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
     activeWindow: false,
     platform: process.platform,
     smoke: cli.smoke,
+    audioLoopback: loopbackAvailable(),
   };
 
   const overlays = new OverlayManager({
@@ -145,6 +148,23 @@ async function main(): Promise<void> {
     getCapabilities: () => capabilities,
   });
   registerLicenseIpc(license, licenseWindow);
+  installAudioPermissions({
+    isAllowed: () => {
+      const s = effectiveSettings();
+      return s.enabled && s.audioReactive;
+    },
+    isOverlay: (wc) => overlays.byWebContents(wc) !== undefined,
+  });
+  /** Last audio status per overlay (for the tray). */
+  const audioStatuses = new Map<number, AudioStatus>();
+  const audioStatusSummary = (): AudioStatus | null => {
+    // Prefer the primary overlay's report; any active one wins over errors.
+    let best: AudioStatus | null = null;
+    for (const [id, st] of audioStatuses) {
+      if (!best || st.state === 'active' || (id === overlays.list()[0]?.id && best.state !== 'active')) best = st;
+    }
+    return best;
+  };
 
   // ── Trackers ───────────────────────────────────────────────────────────
   const cursor = new CursorTracker({
@@ -247,6 +267,7 @@ async function main(): Promise<void> {
     updateSettings: (patch) => store.update(patch),
     getCapabilities: () => capabilities,
     getLicense: () => license.get(),
+    getAudioStatus: audioStatusSummary,
     testBurst: () => testBurst(1),
     openSettingsFile,
     openLicenseWindow: () => licenseWindow.show(),
@@ -286,6 +307,14 @@ async function main(): Promise<void> {
   store.onChange((next, previous) => {
     log.debug('settings changed', next);
     if (next.licenseOnlineCheck !== previous.licenseOnlineCheck) license.refresh();
+    if (next.audioReactive && !previous.audioReactive && effectiveSettings().audioReactive) {
+      // macOS shows the microphone prompt only when main asks; do it before the renderer tries.
+      void ensureMicrophoneAccess().then((status) => {
+        if (status === 'denied') audioStatuses.set(-1, { state: 'denied', source: next.audioSource, message: 'microphone access denied in System Settings' });
+        tray.refresh();
+      });
+    }
+    if (!next.audioReactive) audioStatuses.clear();
     pushEffectiveSettings();
   });
   license.onChange((info, previous) => {
@@ -308,6 +337,15 @@ async function main(): Promise<void> {
   });
   overlays.on('stats', (overlay, stats) => {
     log.debug(`[overlay#${overlay.info.index}] frames=${stats.frames} fps=${stats.fps.toFixed(1)} sparks=${stats.sparks}`);
+  });
+  overlays.on('audio-status', (overlay, status: AudioStatus) => {
+    const prev = audioStatuses.get(overlay.id);
+    audioStatuses.set(overlay.id, status);
+    audioStatuses.delete(-1);
+    if (!prev || prev.state !== status.state || prev.source !== status.source) {
+      log.info(`[overlay#${overlay.info.index}] audio ${status.state} (${status.source})${status.message ? `: ${status.message}` : ''}`);
+      tray.refresh();
+    }
   });
   overlays.on('overlays-changed', () => {
     // New windows start hidden; respect the current pause state.

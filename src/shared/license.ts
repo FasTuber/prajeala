@@ -37,6 +37,8 @@ export interface TierLimits {
   maxIntensity: Intensity;
   /** Fire on the focused window frame. */
   burnActiveWindow: boolean;
+  /** Sound reactivity. */
+  audioReactive: boolean;
 }
 
 /** What the Free tier can do. Change the product here, nowhere else. */
@@ -44,12 +46,14 @@ export const FREE_LIMITS: Readonly<TierLimits> = Object.freeze({
   palettes: ['classic'] as readonly Palette[],
   maxIntensity: 'medium' as Intensity,
   burnActiveWindow: false,
+  audioReactive: false,
 });
 
 export const PRO_LIMITS: Readonly<TierLimits> = Object.freeze({
   palettes: null,
   maxIntensity: INTENSITIES[INTENSITIES.length - 1] ?? 'inferno',
   burnActiveWindow: true,
+  audioReactive: true,
 });
 
 export function limitsFor(tier: Tier): Readonly<TierLimits> {
@@ -89,6 +93,7 @@ export function applyTierLimits(settings: Settings, tier: Tier): Settings {
   out.palette = clampPalette(tier, settings.palette);
   out.intensity = clampIntensity(tier, settings.intensity);
   if (!limits.burnActiveWindow) out.burnActiveWindow = false;
+  if (!limits.audioReactive) out.audioReactive = false;
   return out;
 }
 
@@ -101,6 +106,8 @@ export function isLockedForTier(tier: Tier, key: keyof Settings, value: unknown)
       return !isIntensityAllowed(tier, value as Intensity);
     case 'burnActiveWindow':
       return value === true && !limitsFor(tier).burnActiveWindow;
+    case 'audioReactive':
+      return value === true && !limitsFor(tier).audioReactive;
     default:
       return false;
   }

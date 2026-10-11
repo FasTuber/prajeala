@@ -22,6 +22,7 @@ import {
   type IntensityPreset,
   type Settings,
 } from '../../shared/settings';
+import { AudioReactor } from '../audio/AudioReactor';
 import { FireCursor } from '../cursor/FireCursor';
 import { BurstEmitter } from '../emitters/BurstEmitter';
 import { CursorEmitter } from '../emitters/CursorEmitter';
@@ -91,6 +92,8 @@ export class App {
   private synthetic: SyntheticCursor | null = null;
   private readonly syntheticPoint = { x: 0, y: 0 };
   private nextSyntheticBurst = 0;
+  private audio: AudioReactor | null = null;
+  private audioWanted: { source: Settings['audioSource'] } | null = null;
 
   private cssWidth = 1;
   private cssHeight = 1;
@@ -317,20 +320,69 @@ export class App {
       this.lastTickAt = 0;
       this.scheduleRaf();
     }
+    this.syncAudio();
+  }
+
+  // ───────────────────────────── Sound reactivity ─────────────────────────────
+
+  /** Starts/stops/re-sources the audio capture to match the settings. */
+  private syncAudio(): void {
+    const s = this.settings;
+    const want = s.enabled && s.audioReactive ? { source: s.audioSource } : null;
+    if (want) {
+      if (!this.audio) {
+        this.audio = new AudioReactor({
+          simulate: this.options.audioSim,
+          loopbackAvailable: this.caps?.audioLoopback ?? false,
+          onStatus: (status) => {
+            this.log(status.state === 'active' || status.state === 'off' ? 'info' : 'warn', `audio: ${status.state} (${status.source})${status.message ? ` — ${status.message}` : ''}`);
+            try {
+              this.api.reportAudioStatus(status);
+            } catch {
+              /* ignore */
+            }
+          },
+        });
+      }
+      this.audio.setGain(s.audioGain);
+      if (!this.audioWanted || this.audioWanted.source !== want.source) {
+        this.audioWanted = want;
+        void this.audio.start(want.source);
+      }
+    } else if (this.audio) {
+      this.audioWanted = null;
+      this.audio.stop();
+      this.ctx.audio = this.audio.levels; // zeroed by stop()
+    }
+  }
+
+  private updateAudio(dt: number): void {
+    const a = this.audio;
+    if (!a) return;
+    const levels = a.update(dt);
+    this.ctx.audio = levels;
+    // A strong beat under the cursor: a small burst, so kicks are visible even when the mouse rests.
+    if (levels.beatHit && levels.bass > 0.55 && this.cursor.hasPosition && this.cursor.inside) {
+      this.burstEmitter.trigger(this.cursor.x, this.cursor.y, this.preset.burst * (0.25 + 0.35 * levels.bass), 'other');
+    }
   }
 
   private refreshSimParams(): void {
     const p = this.preset;
     const s = this.simParams;
+    const a = this.ctx.audio;
+    // Music lifts and twists the whole field a little: buoyancy follows the level, swirl the highs.
+    const lift = a.active ? 1 + 0.45 * a.level + 0.3 * a.beat : 1;
+    const swirl = a.active ? 1 + 0.5 * a.high : 1;
     // Flame lifetime ≈ 1 / cooling: low 0.25 s, medium 0.36 s, high 0.56 s, inferno 1 s.
     s.heatDissipation = p.heatDissipation;
     s.smokeDissipation = 0.4;
     // Presets express velocity retention generously; swirl should settle within a couple of seconds.
     s.velocityDissipation = Math.pow(p.velocityDissipation, 8);
     s.cooling = (1 - p.heatDissipation) * 35;
-    s.buoyancy = p.buoyancy * 1.1;
-    s.curl = p.curl * 2;
-    s.maxSpeed = 1.0 + p.buoyancy * 0.35;
+    s.buoyancy = p.buoyancy * 1.1 * lift;
+    s.curl = p.curl * 2 * swirl;
+    s.maxSpeed = (1.0 + p.buoyancy * 0.35) * lift;
     s.pressureIterations = this.settings.pressureIterations;
   }
 
@@ -378,6 +430,7 @@ export class App {
   private handleCapabilities(c: HostCapabilities): void {
     this.caps = c;
     this.updateSmokeDriver();
+    this.syncAudio();
   }
 
   private updateSmokeDriver(): void {
@@ -526,6 +579,10 @@ export class App {
     this.cursor.tick(dt);
     this.ctx.dt = dt;
     this.ctx.time = this.time;
+    if (this.audio) {
+      this.updateAudio(dt);
+      this.refreshSimParams();
+    }
     this.driveSynthetic();
     for (const e of this.emitters) e.update(this.ctx);
     if (this.settings.sparks) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
@@ -623,7 +680,14 @@ export class App {
     if (s.clickBursts) active.push(`burst(${this.burstEmitter.total})${this.burstEmitter.active ? '*' : ''}`);
     if (s.burnActiveWindow) active.push(`window${this.windowEmitter.visible ? '*' : ''}`);
     if (s.screenBottomFire) active.push('bottom*');
-    const state = !s.enabled ? 'PAUSED' : this.contextLost ? 'CONTEXT LOST' : !g ? 'NO GPU' : document.hidden ? 'HIDDEN' : 'running';
+    if (s.audioReactive) {
+      const a = this.ctx.audio;
+      const st = this.audio?.currentStatus;
+      active.push(
+        `audio:${st?.state ?? 'off'}${a.active ? ` L${a.level.toFixed(2)} B${a.bass.toFixed(2)} M${a.mid.toFixed(2)} H${a.high.toFixed(2)}${a.bpm ? ` ${a.bpm}bpm` : ''}` : ''}`,
+      );
+    }
+    const state =!s.enabled ? 'PAUSED' : this.contextLost ? 'CONTEXT LOST' : !g ? 'NO GPU' : document.hidden ? 'HIDDEN' : 'running';
     const lines = [
       `prăjeală ${state} · ${this.fps} fps (cap ${s.maxFps}) · frames ${this.frames}${this.env.mock ? ' · mock' : ''}`,
       `sim ${g?.sim.width ?? 0}×${g?.sim.height ?? 0} (scale ${s.simScale}, ${s.pressureIterations} it) · canvas ${this.canvas.width}×${this.canvas.height} @${this.dpr.toFixed(2)}x`,
@@ -658,6 +722,8 @@ export class App {
     if (this.statsTimer) clearInterval(this.statsTimer);
     for (const u of this.unsubscribers) u();
     this.unsubscribers.length = 0;
+    this.audio?.stop();
+    this.audio = null;
     this.disposeGpu();
     this.hud.dispose();
   }

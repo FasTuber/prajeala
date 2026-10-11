@@ -82,7 +82,7 @@ export class CursorEmitter implements Emitter {
     const t = ctx.time;
     const H = ctx.height;
     const speedK = clamp01(c.speed / 1600);
-    const temp = Math.min(1, 0.6 + preset.heat * 0.4);
+    const temp = Math.min(1, (0.6 + preset.heat * 0.4) * ctx.audioBoost);
 
     if (mode === 'halo') {
       // Steady ring: a few flickering sources around the cursor, pushed upward.
@@ -109,7 +109,8 @@ export class CursorEmitter implements Emitter {
     }
 
     if (ctx.settings.sparks) {
-      const rate = (mode === 'comet' ? 70 : 35) * speedK + (mode === 'halo' ? 4 : 2);
+      const a = ctx.audio;
+      const rate = (mode === 'comet' ? 70 : 35) * speedK + (mode === 'halo' ? 4 : 2) + (a.active ? 40 * a.high + 120 * a.beat : 0);
       this.sparkAccumulator += rate * ctx.dt;
       const n = Math.floor(this.sparkAccumulator);
       if (n > 0) {

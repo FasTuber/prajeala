@@ -10,7 +10,9 @@
  * included for debugging and for cross-display effects.
  */
 import type { LicenseActionResult, LicenseInfo } from './license';
-import type { Settings } from './settings';
+import type { AudioSource, Settings } from './settings';
+
+export type { AudioSource };
 
 export interface Rect {
   x: number;
@@ -102,6 +104,16 @@ export interface HostCapabilities {
   activeWindow: boolean;
   platform: 'win32' | 'darwin' | 'linux' | string;
   smoke: boolean;
+  /** System-audio (loopback) capture can be served by the host (Windows). Optional for older hosts. */
+  audioLoopback?: boolean;
+}
+
+/** Sound-reactivity state reported by a renderer (shown in the tray). */
+export interface AudioStatus {
+  state: 'off' | 'starting' | 'active' | 'denied' | 'unavailable' | 'error';
+  /** Source actually in use (may differ from the setting after a fallback). */
+  source: AudioSource;
+  message?: string;
 }
 
 /** Channel names. Keep them in one place so main/preload/renderer never drift. */
@@ -122,6 +134,7 @@ export const IPC = {
   ready: 'prajeala:ready',
   stats: 'prajeala:stats',
   log: 'prajeala:log',
+  audioStatus: 'prajeala:audio-status',
 
   // renderer → main (invoke)
   getSettings: 'prajeala:get-settings',
@@ -168,6 +181,7 @@ export interface PrajealaApi {
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;
+  reportAudioStatus(status: AudioStatus): void;
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void;
 }
 

@@ -13,6 +13,10 @@ export type Intensity = (typeof INTENSITIES)[number];
 export const CURSOR_MODES = ['off', 'halo', 'trail', 'comet'] as const;
 export type CursorMode = (typeof CURSOR_MODES)[number];
 
+/** Where sound reactivity listens: the microphone, or system audio (loopback) where the OS allows it. */
+export const AUDIO_SOURCES = ['microphone', 'system'] as const;
+export type AudioSource = (typeof AUDIO_SOURCES)[number];
+
 export interface Settings {
   /** Master switch. When false the overlays stay alive but render nothing. */
   enabled: boolean;
@@ -42,6 +46,11 @@ export interface Settings {
    * (refunds / revocations). Off = no network traffic except explicit actions.
    */
   licenseOnlineCheck: boolean;
+  /** Flames pulse with the music (microphone / system audio via getUserMedia). Pro. */
+  audioReactive: boolean;
+  audioSource: AudioSource;
+  /** Sensitivity multiplier for the audio analysis (0.25 … 4). */
+  audioGain: number;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -59,12 +68,16 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   launchAtLogin: false,
   showDebugHud: false,
   licenseOnlineCheck: true,
+  audioReactive: false,
+  audioSource: 'microphone',
+  audioGain: 1,
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
   simScale: { min: 0.1, max: 1 },
   maxFps: { min: 15, max: 240 },
   pressureIterations: { min: 0, max: 64 },
+  audioGain: { min: 0.25, max: 4 },
 });
 
 /** Tunables that each intensity preset feeds into the simulation. */
@@ -185,6 +198,9 @@ export function normalizeSettings(input: unknown): Settings {
     launchAtLogin: pickBool(src.launchAtLogin, d.launchAtLogin),
     showDebugHud: pickBool(src.showDebugHud, d.showDebugHud),
     licenseOnlineCheck: pickBool(src.licenseOnlineCheck, d.licenseOnlineCheck),
+    audioReactive: pickBool(src.audioReactive, d.audioReactive),
+    audioSource: pickEnum(src.audioSource, AUDIO_SOURCES, d.audioSource),
+    audioGain: pickNumber(src.audioGain, d.audioGain, L.audioGain.min, L.audioGain.max),
   };
 }
 

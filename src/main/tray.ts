@@ -4,10 +4,10 @@
  */
 import { Menu, Tray, nativeImage, type MenuItemConstructorOptions, type NativeImage } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
-import type { HostCapabilities } from '../shared/ipc';
+import type { AudioStatus, HostCapabilities } from '../shared/ipc';
 import { applyTierLimits, isIntensityAllowed, isPaletteAllowed, limitsFor, type LicenseInfo } from '../shared/license';
 import { PALETTE_DEFINITIONS } from '../shared/palettes';
-import { CURSOR_MODES, INTENSITIES, PALETTES, type Settings } from '../shared/settings';
+import { AUDIO_SOURCES, CURSOR_MODES, INTENSITIES, PALETTES, type AudioSource, type Settings } from '../shared/settings';
 import { createLogger } from './log';
 import { trayAssetPath } from './paths';
 
@@ -34,6 +34,17 @@ const CURSOR_LABELS: Record<Settings['cursorMode'], string> = {
   comet: 'Comet',
 };
 
+const AUDIO_SOURCE_LABELS: Record<AudioSource, string> = {
+  microphone: 'Microphone',
+  system: 'System audio',
+};
+const AUDIO_GAIN_CHOICES: ReadonlyArray<{ label: string; gain: number }> = [
+  { label: 'Low', gain: 0.5 },
+  { label: 'Normal', gain: 1 },
+  { label: 'High', gain: 2 },
+  { label: 'Max', gain: 4 },
+];
+
 const FPS_CHOICES = [30, 60, 120, 144] as const;
 const QUALITY_CHOICES: ReadonlyArray<{ label: string; simScale: number }> = [
   { label: 'Low', simScale: 0.15 },
@@ -47,6 +58,8 @@ export interface TrayActions {
   updateSettings(patch: Partial<Settings>): void;
   getCapabilities(): HostCapabilities;
   getLicense(): LicenseInfo;
+  /** Latest sound-reactivity status reported by the overlays (null = nothing yet). */
+  getAudioStatus(): AudioStatus | null;
   testBurst(): void;
   openSettingsFile(): void;
   openLicenseWindow(): void;
@@ -142,6 +155,7 @@ export class TrayController {
       };
     });
     const windowAllowed = limitsFor(tier).burnActiveWindow;
+    const audioAllowed = limitsFor(tier).audioReactive;
 
     const cursor: MenuItemConstructorOptions[] = CURSOR_MODES.map((value) => ({
       label: CURSOR_LABELS[value],
@@ -202,6 +216,14 @@ export class TrayController {
         click: () => this.actions.updateSettings({ sparks: !this.actions.getSettings().sparks }),
       },
       {
+        label: lock('Sound reactive', !audioAllowed),
+        type: 'checkbox',
+        checked: s.audioReactive,
+        enabled: audioAllowed,
+        click: () => this.actions.updateSettings({ audioReactive: !this.actions.getSettings().audioReactive }),
+      },
+      { label: 'Sound', submenu: this.buildAudioSubmenu(s, caps, audioAllowed) },
+      {
         label: 'Debug HUD',
         type: 'checkbox',
         checked: s.showDebugHud,
@@ -224,6 +246,33 @@ export class TrayController {
       { type: 'separator' },
       { ...hint('Quit Prăjeală', 'CommandOrControl+Shift+Q'), click: () => this.actions.quit() },
     ];
+  }
+
+  private buildAudioSubmenu(s: Settings, caps: HostCapabilities, allowed: boolean): MenuItemConstructorOptions[] {
+    const status = this.actions.getAudioStatus();
+    const items: MenuItemConstructorOptions[] = [{ label: audioStatusLabel(s, status), enabled: false }, { type: 'separator' }];
+    for (const value of AUDIO_SOURCES) {
+      const loopback = value === 'system';
+      const supported = !loopback || caps.audioLoopback === true;
+      items.push({
+        label: loopback && !supported ? `${AUDIO_SOURCE_LABELS[value]} (Windows only; falls back to the microphone)` : AUDIO_SOURCE_LABELS[value],
+        type: 'radio',
+        checked: s.audioSource === value,
+        enabled: allowed,
+        click: () => this.actions.updateSettings({ audioSource: value }),
+      });
+    }
+    items.push({ type: 'separator' });
+    for (const g of AUDIO_GAIN_CHOICES) {
+      items.push({
+        label: `Sensitivity: ${g.label}`,
+        type: 'radio',
+        checked: Math.abs(s.audioGain - g.gain) < 1e-6,
+        enabled: allowed,
+        click: () => this.actions.updateSettings({ audioGain: g.gain }),
+      });
+    }
+    return items;
   }
 
   private buildLicenseSubmenu(license: LicenseInfo, s: Settings): MenuItemConstructorOptions[] {
@@ -255,6 +304,26 @@ export class TrayController {
       items.push({ type: 'separator' }, { label: 'Buy Prăjeală Pro…', click: () => this.actions.openBuyPage() });
     }
     return items;
+  }
+}
+
+export function audioStatusLabel(s: Settings, status: AudioStatus | null): string {
+  if (!s.audioReactive) return 'Sound reactivity is off';
+  if (!status) return 'Sound: starting…';
+  const src = AUDIO_SOURCE_LABELS[status.source].toLowerCase();
+  switch (status.state) {
+    case 'active':
+      return `Sound: listening to the ${src}${status.message?.startsWith('simulated') ? ' (simulated)' : ''}`;
+    case 'starting':
+      return `Sound: opening the ${src}…`;
+    case 'denied':
+      return 'Sound: microphone access denied (check the OS privacy settings)';
+    case 'unavailable':
+      return 'Sound: no audio input device found';
+    case 'off':
+      return 'Sound: stopped';
+    default:
+      return `Sound: error${status.message ? ` — ${status.message}` : ''}`;
   }
 }
 

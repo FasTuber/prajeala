@@ -123,10 +123,10 @@ describe('tier limits', () => {
   });
 
   it('applyTierLimits clamps without touching the input', () => {
-    const stored: Settings = { ...DEFAULT_SETTINGS, palette: 'blue', intensity: 'inferno', burnActiveWindow: true, sparks: false };
+    const stored: Settings = { ...DEFAULT_SETTINGS, palette: 'blue', intensity: 'inferno', burnActiveWindow: true, sparks: false, audioReactive: true };
     const snapshot = { ...stored };
     const free = applyTierLimits(stored, 'free');
-    expect(free).toEqual({ ...stored, palette: 'classic', intensity: 'medium', burnActiveWindow: false });
+    expect(free).toEqual({ ...stored, palette: 'classic', intensity: 'medium', burnActiveWindow: false, audioReactive: false });
     expect(stored).toEqual(snapshot);
     expect(applyTierLimits(stored, 'pro')).toEqual(stored);
     expect(applyTierLimits(stored, 'pro')).not.toBe(stored);
@@ -139,6 +139,9 @@ describe('tier limits', () => {
     expect(isLockedForTier('free', 'burnActiveWindow', true)).toBe(true);
     expect(isLockedForTier('free', 'burnActiveWindow', false)).toBe(false);
     expect(isLockedForTier('free', 'sparks', true)).toBe(false);
+    expect(isLockedForTier('free', 'audioReactive', true)).toBe(true);
+    expect(isLockedForTier('free', 'audioReactive', false)).toBe(false);
+    expect(isLockedForTier('pro', 'audioReactive', true)).toBe(false);
     expect(isLockedForTier('pro', 'palette', 'ember')).toBe(false);
   });
 

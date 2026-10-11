@@ -41,7 +41,8 @@ fereastra e click-through, deci lucrezi normal, doar că ecranul arde.
 | Scântei | particule CPU emise de cursor și de explozii |
 | Palete | `classic`, `blue`, `green`, `plasma`, `ember` |
 | Intensități | `low`, `medium`, `high`, `inferno` |
-| Free / Pro | versiunea Free are paleta `classic`, intensitate până la `medium` și nu arde ferestrele; **Pro** deblochează tot — vezi [Prăjeală Pro](#pro) |
+| Sunet | focul pulsează după muzică: microfon sau audio de sistem (`getUserMedia`), benzi bass/mid/high + detecție de beat; nimic nu se înregistrează sau trimite |
+| Free / Pro | versiunea Free are paleta `classic`, intensitate până la `medium`, fără foc pe ferestre și fără reacție la sunet; **Pro** deblochează tot — vezi [Prăjeală Pro](#pro) |
 
 ### Instalare
 
@@ -71,11 +72,32 @@ Click pe icoana cu flacără din tray:
 - **Intensitate** — Low / Medium / High / Inferno;
 - **Paletă** — Classic / Blue / Green / Plasma / Ember;
 - **Cursor** — Off / Halo / Trail / Comet;
-- comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **Scântei**;
+- comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **Scântei**,
+  **Sound reactive** (Pro);
+- **Sound** — starea curentă (ascultă / permisiune refuzată / fără dispozitiv), sursa (microfon sau audio de
+  sistem) și sensibilitatea (Low / Normal / High / Max);
 - **FPS maxim**, **Pornire la login**, **HUD de debug**;
 - **Licență: Free / Pro** — introdu cheia (fereastră sau din clipboard), verifică online, cumpără Pro
   (opțiunile marcate cu „(Pro)” sunt dezactivate în Free);
 - **Test explozie**, **Ieșire**.
+
+### Reacție la sunet
+
+Cu **Sound reactive** pornit, renderer-ul deschide un `AudioContext` + `AnalyserNode` peste fluxul de la
+`getUserMedia` și calculează la fiecare cadru nivelul general, benzile **bass / mid / high** (cu auto-nivel,
+ca muzica încet să conteze la fel ca cea tare) și un **beat** (energia bass-ului față de media ultimei
+secunde). Flăcările cresc cu nivelul, raza se umflă cu bass-ul, vârtejul urmează înaltele, baza ecranului
+„respiră” pe beat, iar un beat puternic face o mică explozie la cursor. Sunetul nu părăsește niciodată
+procesul: nu se înregistrează, nu se redă, nu se trimite nicăieri.
+
+- **Microfon** — merge peste tot; permisiunea e cerută o singură dată (macOS: din procesul principal, deci
+  apare dialogul de sistem; aplicația împachetată are `NSMicrophoneUsageDescription`).
+- **Audio de sistem** — pe **Windows** prin loopback (`setDisplayMediaRequestHandler` + `audio: 'loopback'`),
+  pe Linux prin dispozitivul „Monitor of …” al PulseAudio/PipeWire dacă e expus; altfel cade automat pe
+  microfon (starea din tray spune ce ascultă). macOS nu oferă loopback fără drivere terțe.
+- Setări: `audioReactive` (implicit oprit), `audioSource` (`microphone` / `system`), `audioGain` (0.25–4).
+- În browser / pentru capturi: `?audio=sim` folosește o piesă sintetică (kick la 124 bpm) fără microfon;
+  tasta `m` comută reacția la sunet în mock.
 
 <a name="pro"></a>
 ### Prăjeală Pro
@@ -85,6 +107,7 @@ Click pe icoana cu flacără din tray:
 | Palete | `classic` | toate |
 | Intensitate | până la `medium` | până la `inferno` |
 | Foc pe fereastra activă | – | ✓ |
+| Reacție la sunet | – | ✓ |
 | Cursor, click-uri, foc la baza ecranului, scântei | ✓ | ✓ |
 
 Limitele stau într-un singur loc, `FREE_LIMITS` din `src/shared/license.ts`; procesul principal trimite
@@ -189,7 +212,8 @@ Detalii, diagrame și decizii: [`docs/PLAN.md`](docs/PLAN.md).
 - **Windows** — merge direct; `uiohook-napi` și `get-windows` au binare precompilate.
 - **macOS** — click-urile globale (`uiohook-napi`) cer permisiunea **Accessibility**, iar titlurile ferestrelor
   (`get-windows`) cer **Screen Recording** (System Settings → Privacy & Security). Fără ele, aplicația merge
-  dar fără explozii la click / foc pe aplicații. Aplicația rulează ca agent de tray (fără icoană în Dock).
+  dar fără explozii la click / foc pe aplicații. Reacția la sunet cere **Microphone**. Aplicația rulează ca
+  agent de tray (fără icoană în Dock).
 - **Linux** — e nevoie de un **compositor** (X11 cu compoziție sau Wayland) pentru ferestre transparente.
   Pe Wayland, poziția globală a cursorului și fereastra activă pot fi limitate de compositor. Ca root,
   pornește cu `--no-sandbox`.
@@ -271,8 +295,12 @@ keep working underneath:
 - Click bursts (needs `uiohook-napi`), fire on the active window frame (needs `get-windows`),
   screen-bottom fire, CPU spark particles.
 - Palettes `classic`, `blue`, `green`, `plasma`, `ember`; intensities `low`, `medium`, `high`, `inferno`.
-- **Free / Pro**: Free has the `classic` palette, intensity up to `medium` and no fire on windows; Pro
-  unlocks everything (see [Pro](#pro-1)).
+- **Sound reactive** (Pro): flames pulse with the music from the microphone or, on Windows, system audio
+  (loopback). Bass/mid/high bands with auto-levelling and beat detection; nothing is recorded or sent
+  anywhere. `?audio=sim` in the browser plays a built-in fake track. Settings `audioReactive`,
+  `audioSource`, `audioGain`; macOS asks for microphone access once.
+- **Free / Pro**: Free has the `classic` palette, intensity up to `medium`, no fire on windows and no sound
+  reactivity; Pro unlocks everything (see [Pro](#pro-1)).
 
 ### Install
 
@@ -291,8 +319,9 @@ install, the app still runs with click bursts / active-window fire disabled.
 ### Tray menu
 
 Pause/Resume · Intensity (Low/Medium/High/Inferno) · Palette · Cursor mode · toggles for click bursts,
-active-window fire, screen-bottom fire and sparks · max FPS · launch at login · debug HUD · Licence
-(enter key / clipboard / check online / buy) · test burst · Quit. Items marked "(Pro)" are disabled on Free.
+active-window fire, screen-bottom fire, sparks and sound reactivity · Sound (status, source, sensitivity) ·
+max FPS · launch at login · debug HUD · Licence (enter key / clipboard / check online / buy) · test burst ·
+Quit. Items marked "(Pro)" are disabled on Free.
 
 <a name="pro-1"></a>
 ### Pro
@@ -302,6 +331,7 @@ active-window fire, screen-bottom fire and sparks · max FPS · launch at login 
 | Palettes | `classic` | all |
 | Intensity | up to `medium` | up to `inferno` |
 | Fire on the active window | – | ✓ |
+| Sound reactivity | – | ✓ |
 | Cursor fire, click bursts, screen-bottom fire, sparks | ✓ | ✓ |
 
 The limits live in one place (`FREE_LIMITS`, `src/shared/license.ts`). The main process sends the renderer

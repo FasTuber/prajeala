@@ -4,7 +4,7 @@
  * when the mouse is idle, from a synthetic path; mouse buttons become bursts.
  *
  * Dev keys: 1-4 intensity · p palette · c cursor mode · b bottom fire ·
- * w fake window · s sparks · h HUD · space burst · Esc toggle enabled.
+ * w fake window · s sparks · m sound reactivity · h HUD · space burst · Esc toggle enabled.
  */
 import type {
   ActiveWindowEvent,
@@ -86,6 +86,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     activeWindow: fakeWindow,
     platform: 'browser',
     smoke: options.smoke,
+    audioLoopback: false,
   });
 
   const now = (): number => performance.now() - start;
@@ -136,6 +137,9 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
         break;
       case 'h':
         setSettings({ showDebugHud: !settings.showDebugHud });
+        break;
+      case 'm':
+        setSettings({ audioReactive: !settings.audioReactive });
         break;
       case 'w':
         fakeWindow = !fakeWindow;
@@ -234,6 +238,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     onTestBurst: (cb) => testBurst.on(cb),
     reportReady: (report: RendererReadyReport) => console.info('[prajeala:mock] ready', report),
     reportStats: (stats: RendererStats) => console.debug('[prajeala:mock] stats', stats),
+    reportAudioStatus: (status) => console.info('[prajeala:mock] audio', status),
     log: (level, message) => console[level === 'debug' ? 'debug' : level === 'info' ? 'info' : level === 'warn' ? 'warn' : 'error'](`[prajeala] ${message}`),
   };
 }

@@ -52,6 +52,8 @@ mac:
     # Tray-only app: no Dock icon, no app switcher entry.
     LSUIElement: true
     NSHumanReadableCopyright: Copyright © 2026 Mihai Balan (FasTuber)
+    # Sound reactivity (optional, off by default) listens to the microphone.
+    NSMicrophoneUsageDescription: Prăjeală can make the flames pulse with the music it hears. Nothing is recorded or sent anywhere.
 
 dmg:
   contents:

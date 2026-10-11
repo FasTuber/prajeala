@@ -11,8 +11,10 @@
  *   ?view=heat|smoke|glow   show a raw simulation field instead of the composite
  *   ?losectx=ms   lose the WebGL context after `ms` and restore it 800 ms later
  *   ?free=1       mock only: pretend there is no licence (Free tier limits apply)
+ *   ?audio=sim    drive sound reactivity from a built-in fake track (no microphone;
+ *                 also turns audioReactive on); ?audio=1|mic|system set the real source
  * Mock-only settings overrides: enabled, intensity, palette, cursorMode (or cursor),
- * bottom, window, sparks, bursts, simScale, fps, pressure.
+ * bottom, window, sparks, bursts, simScale, fps, pressure, gain (audioGain).
  */
 import type { Settings } from '../../shared/settings';
 
@@ -31,6 +33,8 @@ export interface RendererOptions {
   loseContextAt: number;
   /** Mock only: simulate the Free tier instead of the default Pro demo licence. */
   freeTier: boolean;
+  /** `?audio=sim`: fake music instead of a real capture. */
+  audioSim: boolean;
   settingsOverrides: Partial<Settings>;
 }
 
@@ -59,6 +63,13 @@ export function parseOptions(search: string): RendererOptions {
   if (params.has('pressure')) overrides.pressureIterations = Number(params.get('pressure'));
   if (params.has('hud')) overrides.showDebugHud = flag(params, 'hud');
   if (params.has('enabled')) overrides.enabled = flag(params, 'enabled');
+  const audio = params.get('audio');
+  const audioSim = audio === 'sim';
+  if (audio !== null) {
+    overrides.audioReactive = audioSim || flag(params, 'audio');
+    if (audio === 'system' || audio === 'mic' || audio === 'microphone') overrides.audioSource = audio === 'system' ? 'system' : 'microphone';
+  }
+  if (params.has('gain')) overrides.audioGain = Number(params.get('gain'));
   let pin: RendererOptions['pin'] = null;
   const pinRaw = params.get('pin');
   if (pinRaw) {
@@ -78,6 +89,7 @@ export function parseOptions(search: string): RendererOptions {
     view: VIEWS[params.get('view') ?? ''] ?? 0,
     loseContextAt: Math.max(0, Number(params.get('losectx') ?? 0) || 0),
     freeTier: flag(params, 'free'),
+    audioSim,
     settingsOverrides: overrides,
   };
 }

@@ -8,6 +8,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import {
   IPC,
   type ActiveWindowEvent,
+  type AudioStatus,
   type CursorEvent,
   type DisplayInfo,
   type HostCapabilities,
@@ -60,6 +61,9 @@ const api: PrajealaApi = {
   },
   reportStats: (stats: RendererStats) => {
     ipcRenderer.send(IPC.stats, stats);
+  },
+  reportAudioStatus: (status: AudioStatus) => {
+    ipcRenderer.send(IPC.audioStatus, status);
   },
   log: (level, message) => {
     ipcRenderer.send(IPC.log, { level, message: String(message) });

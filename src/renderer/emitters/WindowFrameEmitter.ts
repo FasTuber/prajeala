@@ -63,7 +63,7 @@ export class WindowFrameEmitter implements Emitter {
     const right = x + width;
     const bottom = y + height;
     const margin = r * 2.5;
-    const topTemp = Math.min(1, 0.6 + ambient * 0.5) * fade;
+    const topTemp = Math.min(1, (0.6 + ambient * 0.5) * ctx.audioBoost) * fade;
 
     // Top edge: the main blaze rising from the title bar.
     const topCount = Math.min(MAX_TOP, Math.max(2, Math.ceil(width / (r * 1.15))));
