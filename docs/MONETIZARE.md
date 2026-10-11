@@ -15,7 +15,16 @@ Ghidul ăsta e pentru autor: ce s-a construit, ce trebuie configurat o singură 
 | Intensitate | Mică / Medie / Mare | + **Inferno** |
 | Paletă personalizată (3 culori), foc la tastare | — | ✓ |
 | Monitoare | cel principal | **toate** |
+| Arde tot, Termen limită, Ritmul focului (stil Puls), scenele Clasic / Șemineu / Discret | ✓ | ✓ |
+| Ritmul focului: **peretele egalizator** | — | ✓ |
+| **Mod Torță**, scenele **Petrecere** / **Infern** / **Bântuit** | — | ✓ |
 | Funcții Pro viitoare | — | ✓ |
+
+Logica: modurile mari (Arde tot, Ritmul focului, Termen limită) sunt gratuite, pentru că ele fac clipurile
+care se distribuie singure; Pro adaugă varianta „wow” a fiecăruia (egalizatorul, torța, scenele spectaculoase).
+Gating-ul stă într-un singur loc: `effectiveSettings` / `stripLockedChoices` din
+[`src/shared/pro.ts`](../src/shared/pro.ts); scenele Pro se calculează automat din el
+([`src/shared/scenes.ts`](../src/shared/scenes.ts)).
 
 - **Perioadă de probă:** 7 zile de Pro de la prima pornire, fără card. La final, aplicația revine elegant
   la varianta gratuită: setările Pro alese de utilizator nu se pierd, revin automat după cumpărare.
@@ -129,13 +138,20 @@ npm start -- --force-tier=free --settings   # pornește ca o instalare gratuită
 - Streameri: focul la baza ecranului merge bine ca overlay în OBS (Display Capture).
 - Product Hunt, r/unixporn, r/desktops, Hacker News „Show HN”.
 - Reducere de lansare (cod Lemon Squeezy), apoi preț normal.
-- Funcții Pro viitoare care justifică upgrade-ul: palete personalizate, „focul reacționează la muzică”,
-  foc la tastare, teme sezoniere (zăpadă de Crăciun, dovleci de Halloween).
+- **Calendarul sezonier e deja în aplicație** (`seasonAt` din `src/shared/scenes.ts`): Focul lui Sumedru
+  (24–26 oct.), Halloween (27 oct. – 1 nov., scena Bântuit cu Modul Torță) și sărbătorile de iarnă. Fereastra
+  de setări arată atunci un card cu scena potrivită — sincronizează cu el o reducere Lemon Squeezy și un clip.
+- Clipuri care se vând singure: „Arde tot” pe desktopul real, un drop de muzică cu egalizatorul, finalul unui
+  „Termen limită” (GATA! în flăcări), Halloween cu Modul Torță.
+- Idei Pro următoare: clipuri de 10 s exportate direct („Reluare”), un mod de joc pe desktop (un dragon care
+  scuipă foc pe ferestre), progresie „Vatra” (focul crește cu orele de concentrare), actualizări automate.
 
 ## 7. Imagini
 
-`site/img/hero.jpg` și `site/img/palettes.jpg` sunt randări reale ale overlay-ului, făcute cu pagina de renderer
+`site/img/hero.jpg`, `palettes.jpg`, `burn.jpg`, `rhythm.jpg`, `deadline.jpg` și `torch.jpg` sunt randări reale ale overlay-ului, făcute cu pagina de renderer
 în modul *mock* într-un Chromium headless (WebGL prin SwiftShader). Parametri utili ai paginii
 `dist/renderer/index.html`: `palette=aurora`, `intensity=high`, `bottom=1`, `cursor=comet`, `pin=x,y`
-(cursor fix), `window=x,y,w,h` (fereastră activă falsă, fixă). `dist/renderer/settings.html?lang=ro&tier=free`
+(cursor fix), `window=x,y,w,h` (fereastră activă falsă, fixă), `burn=screen|window` (Arde tot pe un desktop
+generat), `audio=demo&audioStyle=eq` (muzică sintetică de 120 BPM, drop la ~24 s), `focus=S&focusAt=S`
+(un Termen limită de S secunde), `torch=1`. `dist/renderer/settings.html?lang=ro&tier=free`
 deschide fereastra de setări cu date simulate.

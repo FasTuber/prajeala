@@ -342,6 +342,56 @@
         gap: 10px 22px;
         align-items: center;
       }
+      .modes {
+        display: grid;
+        gap: 56px;
+        margin-top: 36px;
+      }
+      .mode {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+        gap: 32px;
+        align-items: center;
+      }
+      .mode:nth-child(even) {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+      }
+      .mode:nth-child(even) .shot {
+        order: 2;
+      }
+      .mode .shot {
+        margin-top: 0;
+      }
+      .mode .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .mode h3 {
+        font-size: 24px;
+        margin: 0 0 10px;
+      }
+      .mode .tag {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        margin-left: 8px;
+        background: rgba(255, 179, 71, 0.16);
+        color: #ffb347;
+        vertical-align: 3px;
+      }
+      @media (max-width: 760px) {
+        .mode,
+        .mode:nth-child(even) {
+          grid-template-columns: 1fr;
+        }
+        .mode:nth-child(even) .shot {
+          order: 0;
+        }
+      }
       @media (max-width: 760px) {
         nav .links {
           display: none;
@@ -364,6 +414,7 @@
         <a class="brand" href="#"><img src="img/icon.png" alt="" />Prăjeală</a>
         <div class="links">
           <a href="#features"><span lang="en">Features</span><span lang="ro">Funcții</span></a>
+          <a href="#modes"><span lang="en">Modes</span><span lang="ro">Moduri</span></a>
           <a href="#pro"><span lang="en">Pricing</span><span lang="ro">Prețuri</span></a>
           <a href="#download"><span lang="en">Download</span><span lang="ro">Descarcă</span></a>
           <a href="#faq">FAQ</a>
@@ -431,14 +482,56 @@
           <div class="feature">
             <div class="emoji">⚡</div>
             <h3><span lang="en">Light on your laptop</span><span lang="ro">Ușor pentru laptop</span></h3>
-            <p lang="en">Quality and FPS presets, and the fire stops rendering entirely while paused.</p>
-            <p lang="ro">Presetări de calitate și FPS, iar în pauză focul nu mai consumă nimic.</p>
+            <p lang="en">The fire sleeps when you step away, drops to eco on battery and hides under fullscreen games and videos. When nothing burns, it draws nothing.</p>
+            <p lang="ro">Focul adoarme când pleci de la calculator, trece pe eco pe baterie și se ascunde sub jocuri și filme pe tot ecranul. Când nu arde nimic, nu desenează nimic.</p>
           </div>
           <div class="feature">
             <div class="emoji">🔒</div>
             <h3><span lang="en">Private by design</span><span lang="ro">Privat din construcție</span></h3>
             <p lang="en">No account, no telemetry. The only network call is the one-time licence activation.</p>
             <p lang="ro">Fără cont, fără telemetrie. Singura conexiune la internet e activarea licenței, o singură dată.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="modes">
+      <div class="wrap">
+        <h2><span lang="en">Four ways to set things on fire</span><span lang="ro">Patru feluri de a da foc</span></h2>
+        <p class="lead" lang="en">Beyond the cursor and the window frame, Prăjeală has whole modes — each one a tray click away.</p>
+        <p class="lead" lang="ro">Pe lângă cursor și conturul ferestrei, Prăjeală are moduri întregi — fiecare la un click în tray.</p>
+        <div class="modes">
+          <div class="mode">
+            <div class="shot"><img src="img/burn.jpg" width="1280" height="720" alt="The desktop burning away like paper from the cursor outwards" loading="lazy" /></div>
+            <div>
+              <h3><span lang="en">🔥 Burn it all</span><span lang="ro">🔥 Arde tot</span></h3>
+              <p lang="en">Your real desktop curls and burns like a sheet of paper, starting at the cursor, and the live screen shows through the ash. Click to start more fires, Esc puts it out. <kbd>Ctrl/⌘ + Alt + Shift + F</kbd>. The snapshot never leaves memory.</p>
+              <p lang="ro">Desktopul tău real se încovoaie și arde ca o foaie de hârtie, pornind de la cursor, iar ecranul viu se vede prin cenușă. Clic pentru încă un focar, Esc ca să stingi. <kbd>Ctrl/⌘ + Alt + Shift + F</kbd>. Captura nu părăsește memoria.</p>
+            </div>
+          </div>
+          <div class="mode">
+            <div class="shot"><img src="img/rhythm.jpg" width="1280" height="720" alt="A wall of flames erupting along the bottom of the screen on a music drop" loading="lazy" /></div>
+            <div>
+              <h3><span lang="en">🎵 Fire rhythm</span><span lang="ro">🎵 Ritmul focului</span></h3>
+              <p lang="en">The fire plays your music: bass lifts the flames, every kick shoots a fireball, snares throw sparks and a drop sets the whole screen ablaze. Listens to system sound or the microphone; analysed on your computer, never recorded. <span class="tag">EQ wall · PRO</span></p>
+              <p lang="ro">Focul cântă muzica ta: basul ridică flăcările, fiecare kick aruncă o minge de foc, snare-ul împrăștie scântei, iar un drop aprinde tot ecranul. Ascultă sunetul sistemului sau microfonul; analizat local, niciodată înregistrat. <span class="tag">Egalizator · PRO</span></p>
+            </div>
+          </div>
+          <div class="mode">
+            <div class="shot"><img src="img/deadline.jpg" width="1280" height="720" alt="The focus timer ending: the floor erupts and DONE is written in flames" loading="lazy" /></div>
+            <div>
+              <h3><span lang="en">⏳ Deadline</span><span lang="ro">⏳ Termen limită</span></h3>
+              <p lang="en">A focus timer you can't ignore. A fuse burns along the bottom of the screen, the last minute heats up, the last ten seconds are counted in flames and zero ends in a blaze. 5, 15, 25, 50 minutes or your own.</p>
+              <p lang="ro">Un cronometru de concentrare pe care nu-l poți ignora. Un fitil arde de-a lungul marginii de jos, ultimul minut se încinge, ultimele zece secunde sunt numărate în flăcări, iar la zero totul ia foc. 5, 15, 25, 50 de minute sau cât vrei tu.</p>
+            </div>
+          </div>
+          <div class="mode">
+            <div class="shot"><img src="img/torch.jpg" width="1280" height="720" alt="A dark screen lit only by a ghost-fire torch at the cursor and a burning window frame" loading="lazy" /></div>
+            <div>
+              <h3><span lang="en">🔦 Torch mode</span><span lang="ro">🔦 Mod Torță</span> <span class="tag">PRO</span></h3>
+              <p lang="en">Lights out. The screen goes dark and your cursor is a torch; every fire lights up what is around it. Made for Halloween — the <b>Haunted</b> scene turns it on with ghost fire.</p>
+              <p lang="ro">Se sting luminile. Ecranul se întunecă, iar cursorul tău e o torță; fiecare foc luminează ce e în jurul lui. Făcut pentru Halloween — scena <b>Bântuit</b> îl pornește cu foc fantomă.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -470,6 +563,8 @@
               <li>Classic fire and Embers palettes</li>
               <li>Low, Medium and High intensity</li>
               <li>Your main monitor</li>
+              <li>Burn it all, Fire rhythm (pulse), Deadline timer</li>
+              <li>Scenes: Classic, Fireplace, Subtle</li>
             </ul>
             <ul lang="ro">
               <li>Foc pe cursor: aură, dâră, cometă</li>
@@ -479,6 +574,8 @@
               <li>Paletele Foc clasic și Jar</li>
               <li>Intensitate Mică, Medie și Mare</li>
               <li>Monitorul principal</li>
+              <li>Arde tot, Ritmul focului (puls), Termen limită</li>
+              <li>Scenele Clasic, Șemineu, Discret</li>
             </ul>
             <a class="btn" href="#download"><span lang="en">Download</span><span lang="ro">Descarcă</span></a>
           </div>
@@ -492,6 +589,8 @@
               <li>Typing fire: a flare for every key</li>
               <li>Inferno intensity</li>
               <li>Fire on every monitor</li>
+              <li>Torch mode and the Haunted, Party and Inferno scenes</li>
+              <li>The equaliser wall in Fire rhythm</li>
               <li>Every future Pro feature</li>
               <li>Up to 3 of your computers</li>
             </ul>
@@ -502,6 +601,8 @@
               <li>Foc la tastare: o flacără la fiecare tastă</li>
               <li>Intensitatea Inferno</li>
               <li>Foc pe toate monitoarele</li>
+              <li>Modul Torță și scenele Bântuit, Petrecere și Infern</li>
+              <li>Peretele egalizator în Ritmul focului</li>
               <li>Toate funcțiile Pro viitoare</li>
               <li>Pe până la 3 calculatoare ale tale</li>
             </ul>
@@ -575,6 +676,10 @@
             <summary>Does it phone home?</summary>
             <p>Only to activate a store licence and to re-check it about once a week. No telemetry, no analytics. Being offline never removes Pro.</p>
           </details>
+          <details>
+            <summary>Does Fire rhythm record what I hear? Does Burn it all save screenshots?</summary>
+            <p>No. Sound is turned into a few numbers per frame (loudness, bass, beats) on your computer and thrown away; nothing is recorded. Burn it all takes one picture of the screen, keeps it in memory for the burn and drops it. Neither touches the disk or the network, and Fire rhythm is off until you pick a source.</p>
+          </details>
         </div>
         <div lang="ro">
           <details>
@@ -600,6 +705,10 @@
           <details>
             <summary>Trimite date undeva?</summary>
             <p>Doar la activarea unei licențe din magazin și la o verificare cam o dată pe săptămână. Fără telemetrie, fără analytics. Lipsa internetului nu îți ia niciodată Pro.</p>
+          </details>
+          <details>
+            <summary>Ritmul focului înregistrează ce aud? Arde tot salvează capturi de ecran?</summary>
+            <p>Nu. Sunetul e transformat local în câteva numere pe cadru (volum, bas, bătăi) și apoi aruncat; nu se înregistrează nimic. Arde tot face o singură poză a ecranului, o ține în memorie cât durează arderea și apoi o aruncă. Niciuna nu atinge discul sau internetul, iar Ritmul focului e oprit până alegi o sursă.</p>
           </details>
         </div>
       </div>

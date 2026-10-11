@@ -28,8 +28,11 @@ fereastra e click-through, deci lucrezi normal, doar că ecranul arde.
 
 <p align="center"><img src="site/img/hero.jpg" width="820" alt="O fereastră de editor în flăcări și cursorul transformat în torță"></p>
 
-**Gratuit, cu upgrade opțional [Prăjeală Pro](#prăjeală-pro)** (plată unică): toate cele 8 palete, intensitatea
-Inferno și foc pe toate monitoarele. Orice instalare începe cu 7 zile de Pro. Site: <https://fastuber.github.io/prajeala/>.
+Plus patru moduri: **Arde tot** (desktopul arde ca hârtia), **Ritmul focului** (focul dansează pe muzică),
+**Termen limită** (un cronometru de concentrare cu fitil) și **Mod Torță** (ecran întunecat, cursorul e o torță).
+
+**Gratuit, cu upgrade opțional [Prăjeală Pro](#prăjeală-pro)** (plată unică): toate paletele, intensitatea
+Inferno, foc pe toate monitoarele, Modul Torță, scenele Pro și peretele egalizator. Orice instalare începe cu 7 zile de Pro. Site: <https://fastuber.github.io/prajeala/>.
 
 ### Funcții
 
@@ -45,6 +48,23 @@ Inferno și foc pe toate monitoarele. Orice instalare începe cu 7 zile de Pro. 
 | Palete | `classic`, `ember` (gratuite); `blue`, `green`, `plasma`, `aurora`, `gold`, `ghost` (Pro) |
 | Intensități | `low`, `medium`, `high` (gratuite); `inferno` (Pro) |
 | Setări | fereastră de setări cu toate opțiunile, previzualizare a paletelor și activarea licenței (ro/en) |
+
+### Moduri
+
+| | |
+|---|---|
+| <img src="site/img/burn.jpg" width="400" alt="Arde tot"> | **🔥 Arde tot** — desktopul tău real se încovoaie și arde ca o foaie de hârtie, pornind de la cursor, iar ecranul viu se vede prin cenușă. Clic pentru încă un focar, `Esc` ca să stingi. `Ctrl/Cmd + Alt + Shift + F`, tray sau setări; variante: fereastra activă sau o imagine aleasă. Captura stă doar în memorie. Pe macOS cere permisiunea **Screen Recording** (altfel poți arde o imagine). |
+| <img src="site/img/rhythm.jpg" width="400" alt="Ritmul focului"> | **🎵 Ritmul focului** — focul cântă muzica: basul ridică flăcările, fiecare kick aruncă o minge de foc, snare-ul împrăștie scântei, un drop aprinde tot ecranul. Sursă: sunetul sistemului sau microfonul (oprit implicit). Analiza (32 de benzi, detecție de bătăi și drop-uri) rulează local, într-o fereastră ascunsă izolată; nu se înregistrează și nu se trimite nimic. Stilul **Egalizator** (un zid de flăcări pe benzi) e Pro. Pe Linux, sunetul sistemului vine din monitorul PulseAudio/PipeWire; pe macOS captura sunetului de sistem poate să nu fie disponibilă — folosește microfonul. |
+| <img src="site/img/deadline.jpg" width="400" alt="Termen limită"> | **⏳ Termen limită** — un cronometru de concentrare desenat de foc: un fitil arde de-a lungul marginii de jos, ultimul minut se încinge, ultimele zece secunde sunt numărate în flăcări, iar la zero tot ecranul ia foc și primești o notificare. 5 / 15 / 25 / 50 de minute sau cât vrei (1–180), cu pauză și „Stinge”, din tray sau din setări. |
+| <img src="site/img/torch.jpg" width="400" alt="Mod Torță"> | **🔦 Mod Torță** (Pro) — ecranul se întunecă, iar cursorul e o torță; fiecare foc luminează ce e în jurul lui. Scena **Bântuit** îl pornește cu foc fantomă. |
+
+**Scene** — un click setează toată atmosfera: **Clasic**, **Șemineu**, **Discret** (gratuite), **Petrecere**,
+**Infern**, **Bântuit** (Pro). În preajma unor zile anume (Focul lui Sumedru, Halloween, sărbătorile de iarnă)
+fereastra de setări sugerează scena potrivită.
+
+**Energie** — focul adoarme după 2 minute fără activitate (configurabil), trece pe **eco** pe baterie (30 fps,
+simulare mai mică) sau se oprește de tot, se ascunde sub jocuri și filme pe tot ecranul și stă deasupra barei
+de activități. Când nu arde nimic, overlay-ul nu mai desenează deloc.
 
 ### Instalare
 
@@ -77,6 +97,9 @@ oricum, doar cu funcțiile respective dezactivate:
 | Paletă personalizată (3 culori) și foc la tastare | — | ✓ |
 | Intensitate Inferno | — | ✓ |
 | Foc pe toate monitoarele | doar cel principal | ✓ |
+| Arde tot, Termen limită, Ritmul focului (stilul Puls) | ✓ | ✓ |
+| Ritmul focului: stilul Egalizator | — | ✓ |
+| Mod Torță; scenele Petrecere, Infern, Bântuit | — | ✓ |
 
 - Primele **7 zile** după instalare ai tot Pro, gratuit. Apoi aplicația revine la varianta gratuită, fără să-ți
   piardă setările: alegerile Pro revin singure după activare.
@@ -97,8 +120,12 @@ Click pe icoana cu flacără din tray:
 - **Pauză / Reluare** — oprește randarea fără să închidă aplicația;
 - **Intensitate** — Low / Medium / High / Inferno;
 - **Paletă** — Classic / Embers / Blue / Green / Plasma / Aurora / Molten gold / Ghost (cele marcate „— Pro” deschid cardul Pro);
+- **🎬 Scenă** — Clasic / Șemineu / Discret / Petrecere / Infern / Bântuit;
 - **Cursor** — Off / Halo / Trail / Comet;
-- comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **Scântei**;
+- **🔥 Arde ecranul** (și submeniul pentru fereastra activă / o imagine), **🎵 Ritmul focului** (sursa),
+  **⏳ Termen limită** (5–50 de minute, pauză, stinge; arată timpul rămas);
+- comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **🔦 Mod Torță**, **Scântei**,
+  **Adoarme când nu ești la calculator**, **Mod joc**;
 - **FPS maxim**, **Pornire la login**, **HUD de debug**;
 - **Test explozie**, **Setări…**, **Deschide fișierul de setări**, **Ieșire**.
 
@@ -112,6 +139,7 @@ Meniul și fereastra sunt în română când sistemul e în română, altfel în
 | `Ctrl/Cmd + Shift + Q` | ieșire |
 | `Ctrl/Cmd + Shift + ↑` / `↓` | intensitate mai mare / mai mică |
 | `Ctrl/Cmd + Shift + B` | explozie de test la cursor |
+| `Ctrl/Cmd + Alt + Shift + F` | Arde tot (`Esc` stinge) |
 
 (`Cmd` pe macOS, `Ctrl` pe Windows și Linux.)
 
@@ -149,7 +177,7 @@ Setările se salvează ca JSON în `prajeala-settings.json`, în directorul `use
 
 Fișierul e validat la citire (`normalizeSettings` din `src/shared/settings.ts`): valorile invalide cad pe
 implicit, numerele sunt limitate la intervalele permise (`simScale` 0.1–1, `maxFps` 15–240,
-`pressureIterations` 0–64). Poți șterge fișierul oricând ca să revii la setările implicite.
+`pressureIterations` 0–64, `idleSleepSeconds` 20–1800, `audioSensitivity` 0–1, `focusMinutes` 1–180). Poți șterge fișierul oricând ca să revii la setările implicite.
 
 Lângă el stă `prajeala-license.json` (data primei porniri și licența activă, fără alte date personale).
 
@@ -238,8 +266,11 @@ keep working underneath:
 - the **focused application window** catches fire along its frame;
 - the **screen** can burn from the bottom edge, on every monitor.
 
-It is **free**, with an optional one-time **Prăjeală Pro** upgrade (all 8 palettes, Inferno intensity, fire on
-every monitor). Every install starts with a 7-day Pro trial. Website: <https://fastuber.github.io/prajeala/>.
+Plus four modes: **Burn it all** (the desktop burns like paper), **Fire rhythm** (the fire dances to your music),
+**Deadline** (a focus timer with a burning fuse) and **Torch mode** (dark screen, your cursor is a torch).
+
+It is **free**, with an optional one-time **Prăjeală Pro** upgrade (all palettes, Inferno intensity, fire on
+every monitor, Torch mode, the Pro scenes and the equaliser wall). Every install starts with a 7-day Pro trial. Website: <https://fastuber.github.io/prajeala/>.
 
 ### Features
 
@@ -252,6 +283,23 @@ every monitor). Every install starts with a 7-day Pro trial. Website: <https://f
 - Palettes `classic`, `ember` (free) and `blue`, `green`, `plasma`, `aurora`, `gold`, `ghost` (Pro);
   intensities `low`, `medium`, `high` (free) and `inferno` (Pro).
 - A settings window with every option, palette previews and licence activation (English / Romanian).
+
+### Modes
+
+| | |
+|---|---|
+| <img src="site/img/burn.jpg" width="400" alt="Burn it all"> | **🔥 Burn it all** — your real desktop curls and burns like paper from the cursor outwards, with the live screen showing through the ash. Click for more fires, `Esc` to put it out. `Ctrl/Cmd + Alt + Shift + F`, the tray or the settings window; also the active window only, or a picture you choose. The snapshot only lives in memory. macOS needs the **Screen Recording** permission (or burn a picture instead). |
+| <img src="site/img/rhythm.jpg" width="400" alt="Fire rhythm"> | **🎵 Fire rhythm** — the fire plays your music: bass lifts the flames, kicks shoot fireballs, snares throw sparks, a drop sets the screen ablaze. Source: system sound or the microphone (off by default). Analysis (32 bands, beat and drop detection) runs locally in an isolated hidden window; nothing is recorded or sent. The **Equaliser** style (a wall of flames per band) is Pro. Linux captures the PulseAudio/PipeWire monitor; macOS may not offer system sound — use the microphone. |
+| <img src="site/img/deadline.jpg" width="400" alt="Deadline"> | **⏳ Deadline** — a focus timer drawn by the fire: a fuse burns along the bottom, the last minute heats up, the last ten seconds are written in flames and zero ends in a blaze plus a notification. 5 / 15 / 25 / 50 minutes or your own (1–180), with pause and stop, from the tray or the settings window. |
+| <img src="site/img/torch.jpg" width="400" alt="Torch mode"> | **🔦 Torch mode** (Pro) — the screen goes dark and your cursor is a torch; every fire lights up its surroundings. The **Haunted** scene turns it on with ghost fire. |
+
+**Scenes** — one click sets the mood: **Classic**, **Fireplace**, **Subtle** (free), **Party**, **Inferno**,
+**Haunted** (Pro). Around Sumedru, Halloween and the winter holidays the settings window suggests the
+matching scene.
+
+**Energy** — the fire sleeps after 2 minutes away (configurable), drops to **eco** on battery (30 fps, smaller
+simulation) or pauses, hides under fullscreen games and videos and stays above the taskbar. When nothing
+burns, the overlay draws nothing at all.
 
 ### Install
 
@@ -276,6 +324,9 @@ install, the app still runs with click bursts / active-window fire disabled.
 | Custom palette (pick 3 colours) and typing fire | — | ✓ |
 | Inferno intensity | — | ✓ |
 | Fire on every monitor | primary only | ✓ |
+| Burn it all, Deadline, Fire rhythm (Pulse style) | ✓ | ✓ |
+| Fire rhythm: Equaliser style | — | ✓ |
+| Torch mode; Party, Inferno and Haunted scenes | — | ✓ |
 
 Pro is a one-time purchase from the settings window (“Buy Pro”); paste the e-mailed licence key in the same
 place. A key works on up to 3 computers. Activation happens once online; the weekly background check never
@@ -287,8 +338,9 @@ removes Pro just because you are offline. Store setup, offline keys and release 
 **Settings…** in the tray (or launching the app a second time) opens the settings window: every option, palette
 previews and the Prăjeală Pro card. It opens by itself with a short welcome on the first launch.
 
-Tray: Pro status · Pause/Resume · Intensity · Palette · Cursor mode · toggles for click bursts, active-window
-fire, screen-bottom fire and sparks · max FPS · quality · launch at login · debug HUD · test burst · Settings… ·
+Tray: Pro status · Pause/Resume · Scene · Intensity · Palette · Cursor mode · Burn the screen (+ window / picture) ·
+Fire rhythm source · Deadline timer (presets, pause, stop, time left) · toggles for click bursts, active-window
+fire, screen-bottom fire, Torch mode, sparks, idle sleep and game mode · max FPS · quality · launch at login · debug HUD · test burst · Settings… ·
 Quit. Pro-only entries are marked “— Pro” and open the Pro card.
 
 ### Global shortcuts
@@ -299,6 +351,7 @@ Quit. Pro-only entries are marked “— Pro” and open the Pro card.
 | `Ctrl/Cmd + Shift + Q` | quit |
 | `Ctrl/Cmd + Shift + ↑` / `↓` | intensity up / down |
 | `Ctrl/Cmd + Shift + B` | test burst at the cursor |
+| `Ctrl/Cmd + Alt + Shift + F` | Burn it all (`Esc` puts it out) |
 
 ### Command-line flags
 
@@ -323,7 +376,7 @@ Quit. Pro-only entries are marked “— Pro” and open the Pro card.
 `Prajeala` for packaged builds): `%APPDATA%\prajeala\` on Windows, `~/Library/Application Support/prajeala/`
 on macOS, `~/.config/prajeala/` on Linux. The file is validated on load (`src/shared/settings.ts`): invalid
 values fall back to defaults and numbers are clamped (`simScale` 0.1–1, `maxFps` 15–240,
-`pressureIterations` 0–64). Delete it to reset. `prajeala-license.json` next to it holds the first-run date and
+`pressureIterations` 0–64, `idleSleepSeconds` 20–1800, `audioSensitivity` 0–1, `focusMinutes` 1–180). Delete it to reset. `prajeala-license.json` next to it holds the first-run date and
 the active licence.
 
 ### How it works
