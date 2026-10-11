@@ -13,6 +13,7 @@ Ghidul ăsta e pentru autor: ce s-a construit, ce trebuie configurat o singură 
 | Foc pe fereastra activă, foc la baza ecranului | ✓ | ✓ |
 | Palete | Foc clasic, Jar | toate 8 (+ Flacără albastră, Foc verde, Plasmă, **Aurora**, **Aur topit**, **Foc fantomă**) |
 | Intensitate | Mică / Medie / Mare | + **Inferno** |
+| Paletă personalizată (3 culori), foc la tastare | — | ✓ |
 | Monitoare | cel principal | **toate** |
 | Funcții Pro viitoare | — | ✓ |
 

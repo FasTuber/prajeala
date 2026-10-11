@@ -77,6 +77,8 @@ describe('normalizeSettings', () => {
       pressureIterations: 20,
       launchAtLogin: true,
       showDebugHud: true,
+      customColors: ['#112233', '#445566', '#778899'],
+      typingFire: false,
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });

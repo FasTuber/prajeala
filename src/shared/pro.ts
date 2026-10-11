@@ -18,9 +18,9 @@ export const FREE_INTENSITIES: readonly Intensity[] = Object.freeze(['low', 'med
 /** How many displays a free install draws on (the primary one; displays are ordered primary-first). */
 export const FREE_MAX_DISPLAYS = 1;
 
-export type ProFeature = 'palettes' | 'inferno' | 'multiMonitor';
+export type ProFeature = 'palettes' | 'inferno' | 'multiMonitor' | 'typingFire';
 
-export const PRO_FEATURES: readonly ProFeature[] = Object.freeze(['palettes', 'inferno', 'multiMonitor'] as ProFeature[]);
+export const PRO_FEATURES: readonly ProFeature[] = Object.freeze(['palettes', 'inferno', 'multiMonitor', 'typingFire'] as ProFeature[]);
 
 export const PRO_PALETTES: readonly Palette[] = Object.freeze(PALETTES.filter((p) => !FREE_PALETTES.includes(p)));
 
@@ -46,8 +46,8 @@ export function effectiveSettings(settings: Settings, pro: boolean): Settings {
   if (pro) return settings;
   const palette = isPaletteLocked(settings.palette, false) ? DEFAULT_SETTINGS.palette : settings.palette;
   const intensity = isIntensityLocked(settings.intensity, false) ? highestFreeIntensity() : settings.intensity;
-  if (palette === settings.palette && intensity === settings.intensity) return settings;
-  return { ...settings, palette, intensity };
+  if (palette === settings.palette && intensity === settings.intensity && !settings.typingFire) return settings;
+  return { ...settings, palette, intensity, typingFire: false };
 }
 
 /** Pro features the stored settings ask for that the current tier cannot deliver (for “unlock” hints). */

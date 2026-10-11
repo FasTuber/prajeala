@@ -45,6 +45,7 @@ const api: PrajealaApi = {
   onDisplay: (cb) => subscribe<DisplayInfo>(IPC.display, cb),
   onCapabilities: (cb) => subscribe<HostCapabilities>(IPC.capabilities, cb),
   onTestBurst: (cb) => subscribe<{ x: number; y: number; strength: number }>(IPC.testBurst, cb),
+  onKeyPress: (cb) => subscribe<null>(IPC.keyPress, () => cb()),
 
   reportReady: (report: RendererReadyReport) => {
     ipcRenderer.send(IPC.ready, report);

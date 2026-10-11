@@ -4,7 +4,7 @@
  * it can be unit-tested with Vitest.
  */
 
-export const PALETTES = ['classic', 'ember', 'blue', 'green', 'plasma', 'aurora', 'gold', 'ghost'] as const;
+export const PALETTES = ['classic', 'ember', 'blue', 'green', 'plasma', 'aurora', 'gold', 'ghost', 'custom'] as const;
 export type Palette = (typeof PALETTES)[number];
 
 export const INTENSITIES = ['low', 'medium', 'high', 'inferno'] as const;
@@ -37,6 +37,10 @@ export interface Settings {
   launchAtLogin: boolean;
   /** Small on-screen diagnostics panel (fps, sim size, emitters). */
   showDebugHud: boolean;
+  /** Colours of the `custom` palette, cool → hot, as #rrggbb. */
+  customColors: [string, string, string];
+  /** Small flares on the active window while typing (requires uiohook-napi). */
+  typingFire: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -53,6 +57,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   pressureIterations: 12,
   launchAtLogin: false,
   showDebugHud: false,
+  customColors: Object.freeze(['#b4102a', '#ff6a00', '#ffe066']) as unknown as [string, string, string],
+  typingFire: true,
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
@@ -149,6 +155,17 @@ function pickNumber(value: unknown, fallback: number, min: number, max: number):
   return Number.isFinite(n) ? clamp(n, min, max) : fallback;
 }
 
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+function pickColors(value: unknown, fallback: readonly string[]): [string, string, string] {
+  const src = Array.isArray(value) ? value : [];
+  const out = [0, 1, 2].map((i) => {
+    const v = src[i];
+    return typeof v === 'string' && HEX_RE.test(v) ? v.toLowerCase() : (fallback[i] ?? '#ffffff');
+  });
+  return [out[0]!, out[1]!, out[2]!];
+}
+
 function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
@@ -178,6 +195,8 @@ export function normalizeSettings(input: unknown): Settings {
     ),
     launchAtLogin: pickBool(src.launchAtLogin, d.launchAtLogin),
     showDebugHud: pickBool(src.showDebugHud, d.showDebugHud),
+    customColors: pickColors(src.customColors, d.customColors),
+    typingFire: pickBool(src.typingFire, d.typingFire),
   };
 }
 

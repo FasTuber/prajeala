@@ -117,6 +117,8 @@ export const IPC = {
   capabilities: 'prajeala:capabilities',
   /** Ask the renderer to emit a one-off burst at local coordinates (used by tray "test" and smoke). */
   testBurst: 'prajeala:test-burst',
+  /** A key was pressed somewhere (typing fire). Carries no key data. */
+  keyPress: 'prajeala:key-press',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
@@ -146,6 +148,7 @@ export interface PrajealaApi {
   onDisplay(cb: (d: DisplayInfo) => void): Unsubscribe;
   onCapabilities(cb: (c: HostCapabilities) => void): Unsubscribe;
   onTestBurst(cb: (p: { x: number; y: number; strength: number }) => void): Unsubscribe;
+  onKeyPress(cb: () => void): Unsubscribe;
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;

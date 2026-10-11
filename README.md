@@ -74,6 +74,7 @@ oricum, doar cu funcțiile respective dezactivate:
 |---|---|---|
 | Cursor, explozii la click, scântei, foc pe fereastra activă și la baza ecranului | ✓ | ✓ |
 | Palete | Foc clasic, Jar | toate 8 |
+| Paletă personalizată (3 culori) și foc la tastare | — | ✓ |
 | Intensitate Inferno | — | ✓ |
 | Foc pe toate monitoarele | doar cel principal | ✓ |
 
@@ -272,6 +273,7 @@ install, the app still runs with click bursts / active-window fire disabled.
 |---|---|---|
 | Cursor fire, click bursts, sparks, active-window and screen-bottom fire | ✓ | ✓ |
 | Palettes | Classic fire, Embers | all 8 |
+| Custom palette (pick 3 colours) and typing fire | — | ✓ |
 | Inferno intensity | — | ✓ |
 | Fire on every monitor | primary only | ✓ |
 

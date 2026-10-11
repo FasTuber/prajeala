@@ -13,7 +13,7 @@ import type {
   RendererReadyReport,
   Unsubscribe,
 } from '../../shared/ipc';
-import { PALETTE_DEFINITIONS } from '../../shared/palettes';
+import { resolvePalette } from '../../shared/palettes';
 import {
   DEFAULT_SETTINGS,
   INTENSITY_PRESETS,
@@ -194,7 +194,7 @@ export class App {
     try {
       sim = new FireSimulation(device, w, h, this.queue);
       renderer = new FireRenderer(device, sim.width, sim.height);
-      renderer.setPalette(PALETTE_DEFINITIONS[this.settings.palette]);
+      renderer.setPalette(resolvePalette(this.settings.palette, this.settings.customColors));
       fireCursor = new FireCursor(device);
       const sparkRenderer = new SparkRenderer(device, this.sparks.capacity);
       this.gpu = { device, sim, renderer, fireCursor, sparkRenderer };
@@ -297,8 +297,8 @@ export class App {
     this.sparks.budget = this.preset.sparkBudget;
     this.refreshSimParams();
     this.hud.setVisible(next.showDebugHud || this.options.hud);
-    if (this.gpu && next.palette !== prev.palette) {
-      this.gpu.renderer.setPalette(PALETTE_DEFINITIONS[next.palette]);
+    if (this.gpu && (next.palette !== prev.palette || next.customColors.join() !== prev.customColors.join())) {
+      this.gpu.renderer.setPalette(resolvePalette(next.palette, next.customColors));
     }
     if (next.simScale !== prev.simScale) this.updateSimSize();
     if (!next.sparks) this.sparks.clear();
@@ -334,6 +334,7 @@ export class App {
       api.onDisplay((d) => this.handleDisplay(d)),
       api.onCapabilities((c) => this.handleCapabilities(c)),
       api.onTestBurst((p) => this.handleTestBurst(p)),
+      api.onKeyPress(() => this.handleKeyPress()),
     );
   }
 
@@ -351,6 +352,31 @@ export class App {
   private handleTestBurst(p: { x: number; y: number; strength: number }): void {
     if (!this.settings.enabled) return;
     this.burstEmitter.trigger(p.x, p.y, Number.isFinite(p.strength) ? p.strength : this.preset.burst);
+  }
+
+  private lastKeyFlareAt = 0;
+
+  /** Typing fire (Pro): a small flare on the focused window's frame for each key, at most ~25 per second. */
+  private handleKeyPress(): void {
+    const s = this.settings;
+    if (!s.enabled || !s.typingFire || !this.gpu) return;
+    const now = performance.now();
+    if (now - this.lastKeyFlareAt < 40) return;
+    this.lastKeyFlareAt = now;
+    let x: number;
+    let y: number;
+    if (this.windowEmitter.visible) {
+      const r = this.windowEmitter.rect;
+      x = r.x + Math.random() * r.width;
+      y = r.y;
+    } else if (this.cursor.hasPosition && this.cursor.inside) {
+      x = this.cursor.x + (Math.random() - 0.5) * this.ctx.radius * 4;
+      y = this.cursor.y;
+    } else {
+      return;
+    }
+    if (!this.ctx.inView(x, y, 0)) return;
+    this.burstEmitter.trigger(x, y, this.preset.burst * 0.35, 'middle');
   }
 
   private handleActiveWindow(e: ActiveWindowEvent | null): void {
@@ -554,7 +580,7 @@ export class App {
       );
     }
     if (s.sparks) {
-      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, PALETTE_DEFINITIONS[s.palette].spark);
+      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, resolvePalette(s.palette, s.customColors).spark);
     }
   }
 

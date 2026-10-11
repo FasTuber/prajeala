@@ -27,6 +27,10 @@ const en = {
   burnActiveWindowUnavailable: 'Burn active window (needs get-windows)',
   screenBottomFire: 'Screen bottom fire',
   sparks: 'Sparks',
+  typingFire: 'Typing fire',
+  typingFireNote: 'A flare on the active window for every key you press (needs uiohook)',
+  customColors: 'Your colours (cool → hot)',
+  lockedTyping: 'Typing fire',
   debugHud: 'Debug HUD',
   fps: 'FPS',
   quality: 'Quality',
@@ -119,6 +123,10 @@ const ro: Record<StringKey, string> = {
   burnActiveWindowUnavailable: 'Foc pe fereastra activă (necesită get-windows)',
   screenBottomFire: 'Foc la baza ecranului',
   sparks: 'Scântei',
+  typingFire: 'Foc la tastare',
+  typingFireNote: 'O flacără pe fereastra activă la fiecare tastă apăsată (necesită uiohook)',
+  customColors: 'Culorile tale (rece → fierbinte)',
+  lockedTyping: 'Focul la tastare',
   debugHud: 'HUD de debug',
   fps: 'FPS',
   quality: 'Calitate',
@@ -222,6 +230,7 @@ export const PALETTE_LABELS_RO: Readonly<Record<Palette, string>> = Object.freez
   aurora: 'Aurora',
   gold: 'Aur topit',
   ghost: 'Foc fantomă',
+  custom: 'Culorile tale',
 });
 
 export function paletteLabel(lang: Lang, palette: Palette): string {

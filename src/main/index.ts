@@ -172,6 +172,10 @@ async function main(): Promise<void> {
     hz: cli.cursorHz,
     hooks: !cli.smoke && !cli.noHooks,
     onMove: (sample) => broadcastCursor(overlays, sample),
+    onKey: () => {
+      const s = effective();
+      if (s.enabled && s.typingFire) overlays.sendToAll(IPC.keyPress, () => null);
+    },
     onButton: (sample, button, type) => {
       if (!store.get().clickBursts) return;
       overlays.sendToAll<PointerButtonEvent>(IPC.pointerButton, (info) => {

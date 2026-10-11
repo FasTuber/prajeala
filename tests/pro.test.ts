@@ -19,7 +19,11 @@ describe('free / pro split', () => {
   it('the defaults are usable without Pro', () => {
     expect(FREE_PALETTES).toContain(DEFAULT_SETTINGS.palette);
     expect(FREE_INTENSITIES).toContain(DEFAULT_SETTINGS.intensity);
-    expect(effectiveSettings(DEFAULT_SETTINGS, false)).toBe(DEFAULT_SETTINGS);
+    const free = effectiveSettings(DEFAULT_SETTINGS, false);
+    expect(free.palette).toBe(DEFAULT_SETTINGS.palette);
+    expect(free.intensity).toBe(DEFAULT_SETTINGS.intensity);
+    expect(free.typingFire).toBe(false); // Pro feature
+    expect(effectiveSettings(DEFAULT_SETTINGS, true)).toBe(DEFAULT_SETTINGS);
   });
 
   it('every palette is either free or pro, and both groups are non-empty', () => {
@@ -105,5 +109,20 @@ describe('product config', () => {
     for (const link of ['buy', 'website', 'repo'] as const) {
       expect(externalUrl(link)).toMatch(/^https:\/\//);
     }
+  });
+});
+
+describe('custom palette and colours', () => {
+  it('normalizes custom colours and keeps them out of free installs', async () => {
+    const { customPalette, resolvePalette, PALETTE_DEFINITIONS } = await import('../src/shared/palettes');
+    const s = normalizeSettings({ customColors: ['#00FF00', 'nope', '#123456', '#ffffff'] });
+    expect(s.customColors).toEqual(['#00ff00', DEFAULT_SETTINGS.customColors[1], '#123456']);
+    expect(isPaletteLocked('custom', false)).toBe(true);
+    const def = customPalette(['#ff0000', '#00ff00', '#0000ff']);
+    expect(def.stops[0]).toEqual([0, 0, 0, 0]);
+    expect(def.stops[2]).toEqual([0.45, 1, 0, 0]);
+    expect(def.stops.at(-1)![0]).toBe(1);
+    expect(resolvePalette('aurora', s.customColors)).toBe(PALETTE_DEFINITIONS.aurora);
+    expect(resolvePalette('custom', ['#ff0000', '#00ff00', '#0000ff'])).toEqual(def);
   });
 });

@@ -180,7 +180,9 @@ export class SettingsStore extends EventEmitter {
 
 export function settingsEqual(a: Settings, b: Settings): boolean {
   for (const key of Object.keys(a) as (keyof Settings)[]) {
-    if (a[key] !== b[key]) return false;
+    const x = a[key];
+    const y = b[key];
+    if (Array.isArray(x) && Array.isArray(y) ? x.join() !== y.join() : x !== y) return false;
   }
   return true;
 }

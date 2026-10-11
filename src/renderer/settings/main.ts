@@ -18,7 +18,7 @@ import {
 } from '../../shared/i18n';
 import type { PrajealaUiApi, UiFocus, UiState } from '../../shared/ipc';
 import type { LicenseActionResult } from '../../shared/license';
-import { PALETTE_DEFINITIONS } from '../../shared/palettes';
+import { resolvePalette, type PaletteDefinition } from '../../shared/palettes';
 import { isIntensityLocked, isPaletteLocked } from '../../shared/pro';
 import { CURSOR_MODES, INTENSITIES, PALETTES, SETTINGS_LIMITS, type Settings } from '../../shared/settings';
 import { createMockUiApi } from './mock';
@@ -40,9 +40,9 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-function paletteGradient(name: (typeof PALETTES)[number]): string {
+function paletteGradient(def: PaletteDefinition): string {
   // Skip the transparent-black cold end so the swatch shows the flame colours.
-  const stops = PALETTE_DEFINITIONS[name].stops.filter(([t]) => t >= 0.12);
+  const stops = def.stops.filter(([t]) => t >= 0.12);
   const span = 1 - (stops[0]?.[0] ?? 0);
   const css = stops.map(([t, r, g, b]) => {
     const pos = span > 0 ? ((t - (stops[0]?.[0] ?? 0)) / span) * 100 : 0;
@@ -105,6 +105,7 @@ class SettingsPage {
         this.toggleRow('burnActiveWindow', t('burnActiveWindow'), t('burnActiveWindowUnavailable'), (s) => s.capabilities.activeWindow),
         this.toggleRow('screenBottomFire', t('screenBottomFire'), null, () => true),
         this.toggleRow('sparks', t('sparks'), null, () => true),
+        this.typingRow(),
         h('div', {}, [h('button', { class: 'btn', text: `🔥 ${t('testBurst')}`, on: { click: () => this.api.testBurst() } })]),
       ]),
       this.card(t('sectionPerformance'), [
@@ -264,6 +265,30 @@ class SettingsPage {
     return h('label', { class: 'row' }, [h('span', { class: 'label' }, [h('span', { text: label }), note]), h('span', { class: 'switch' }, [input, h('span')])]);
   }
 
+  /** Typing fire: Pro-only toggle (the switch shows the lock instead of flipping without Pro). */
+  private typingRow(): HTMLElement {
+    const t = this.t;
+    const input = h('input', { attrs: { type: 'checkbox', role: 'switch', 'aria-label': t('typingFire') } });
+    input.addEventListener('change', () => {
+      if (!this.state.license.pro) {
+        input.checked = false;
+        this.showLocked(t('lockedTyping'));
+        return;
+      }
+      void this.update({ typingFire: input.checked });
+    });
+    const lock = h('span', { class: 'lock', text: 'PRO' });
+    this.syncs.push((s) => {
+      input.checked = s.license.pro && s.settings.typingFire;
+      input.disabled = !s.capabilities.globalClicks;
+      lock.hidden = s.license.tier === 'pro';
+    });
+    return h('label', { class: 'row' }, [
+      h('span', { class: 'label' }, [h('span', {}, [t('typingFire'), lock]), h('span', { class: 'note', text: t('typingFireNote') })]),
+      h('span', { class: 'switch' }, [input, h('span')]),
+    ]);
+  }
+
   private segmented<T extends string | number>(
     values: readonly T[],
     label: (v: T) => string,
@@ -345,6 +370,7 @@ class SettingsPage {
   private paletteControl(): HTMLElement {
     const fallback = h('p', { class: 'small muted' });
     const swatches = PALETTES.map((name) => {
+      const bar = h('span', { class: 'bar', attrs: { style: `background:${paletteGradient(resolvePalette(name, this.state.settings.customColors))}` } });
       const lock = h('span', { class: 'lock', text: 'PRO' });
       const el = h(
         'button',
@@ -361,10 +387,23 @@ class SettingsPage {
             },
           },
         },
-        [h('span', { class: 'bar', attrs: { style: `background:${paletteGradient(name)}` } }), h('span', {}, [paletteLabel(this.state.lang, name), lock])],
+        [bar, h('span', {}, [paletteLabel(this.state.lang, name), lock])],
       );
-      return { name, el, lock };
+      return { name, el, lock, bar };
     });
+    const pickers = [0, 1, 2].map((i) =>
+      h('input', {
+        attrs: { type: 'color', 'aria-label': `${this.t('customColors')} ${i + 1}` },
+        on: {
+          change: () => {
+            const colors = [...this.state.settings.customColors] as [string, string, string];
+            colors[i] = pickers[i]!.value;
+            void this.update({ customColors: colors });
+          },
+        },
+      }),
+    );
+    const customRow = h('div', { class: 'row' }, [h('span', { class: 'small muted', text: this.t('customColors') }), h('span', { class: 'seg' }, pickers)]);
     this.syncs.push((s) => {
       for (const sw of swatches) {
         const isLocked = isPaletteLocked(sw.name, s.license.pro);
@@ -373,11 +412,17 @@ class SettingsPage {
         sw.el.setAttribute('aria-pressed', String(s.effective.palette === sw.name));
         sw.lock.hidden = !isPaletteLocked(sw.name, false) || s.license.tier === 'pro';
       }
+      const custom = swatches.find((sw) => sw.name === 'custom');
+      if (custom) custom.bar.style.background = paletteGradient(resolvePalette('custom', s.settings.customColors));
+      pickers.forEach((p, i) => {
+        if (document.activeElement !== p) p.value = s.settings.customColors[i] ?? '#ffffff';
+      });
+      customRow.hidden = !(s.license.pro && s.settings.palette === 'custom');
       const wanted = s.settings.palette;
       fallback.hidden = wanted === s.effective.palette;
       fallback.textContent = fallback.hidden ? '' : this.t('usingFallback', { name: paletteLabel(s.lang, s.effective.palette) });
     });
-    return h('div', { class: 'stack' }, [h('div', { class: 'palettes' }, swatches.map((s) => s.el)), fallback]);
+    return h('div', { class: 'stack' }, [h('div', { class: 'palettes' }, swatches.map((s) => s.el)), customRow, fallback]);
   }
 
   private rangeRow(key: 'pressureIterations', label: string, note: string): HTMLElement {

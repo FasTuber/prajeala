@@ -26,7 +26,7 @@ interface UiohookMouseEvent {
   button: unknown;
 }
 interface UiohookLike {
-  on(event: 'mousemove' | 'mousedown' | 'mouseup', listener: (e: UiohookMouseEvent) => void): unknown;
+  on(event: 'mousemove' | 'mousedown' | 'mouseup' | 'keydown', listener: (e: UiohookMouseEvent) => void): unknown;
   removeAllListeners?(event?: string): unknown;
   start(): void;
   stop(): void;
@@ -44,6 +44,8 @@ export interface CursorTrackerOptions {
   hooks: boolean;
   onMove(sample: CursorSample): void;
   onButton(sample: CursorSample, button: PointerButton, type: 'down' | 'up'): void;
+  /** A key went down somewhere (which key is never read or forwarded). */
+  onKey?(): void;
 }
 
 /** Minimum spacing between two hook-triggered samples (1000 Hz mice would otherwise flood IPC). */
@@ -126,6 +128,10 @@ export class CursorTracker {
       hook.on('mousemove', () => this.sample(true));
       hook.on('mousedown', (e) => this.onButton(e, 'down'));
       hook.on('mouseup', (e) => this.onButton(e, 'up'));
+      // Only the fact that a key was pressed is used; the key itself is ignored.
+      hook.on('keydown', () => {
+        if (this.running) this.options.onKey?.();
+      });
       hook.start();
       this.hook = hook;
       this.hookStarted = true;
