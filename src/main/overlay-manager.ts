@@ -23,6 +23,7 @@ import {
 } from '../shared/ipc';
 import { AUDIO_SOURCES } from '../shared/settings';
 import type { Settings } from '../shared/settings';
+import type { ThemeDefinition } from '../shared/theme';
 import { createLogger, type LogLevel } from './log';
 
 const log = createLogger('overlay');
@@ -39,6 +40,7 @@ export interface OverlayContext {
   getSettings(): Settings;
   updateSettings(patch: unknown): Settings;
   getCapabilities(): HostCapabilities;
+  getTheme(): ThemeDefinition;
 }
 
 export interface Overlay {
@@ -339,6 +341,7 @@ export class OverlayManager extends EventEmitter {
       wc.send(IPC.display, overlay.info);
       wc.send(IPC.capabilities, this.ctx.getCapabilities());
       wc.send(IPC.settings, this.ctx.getSettings());
+      wc.send(IPC.theme, this.ctx.getTheme());
     } catch (err) {
       log.debug('initial state push failed:', err);
     }
@@ -347,6 +350,7 @@ export class OverlayManager extends EventEmitter {
   private registerIpc(): void {
     ipcMain.handle(IPC.getSettings, () => this.ctx.getSettings());
     ipcMain.handle(IPC.getCapabilities, () => this.ctx.getCapabilities());
+    ipcMain.handle(IPC.getTheme, () => this.ctx.getTheme());
     ipcMain.handle(IPC.getDisplay, (event) => {
       const overlay = this.byWebContents(event.sender);
       if (!overlay) throw new Error('unknown overlay window');

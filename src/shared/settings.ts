@@ -4,7 +4,7 @@
  * it can be unit-tested with Vitest.
  */
 
-export const PALETTES = ['classic', 'blue', 'green', 'plasma', 'ember'] as const;
+export const PALETTES = ['classic', 'blue', 'green', 'plasma', 'ember', 'ice', 'electric', 'neon'] as const;
 export type Palette = (typeof PALETTES)[number];
 
 export const INTENSITIES = ['low', 'medium', 'high', 'inferno'] as const;
@@ -51,6 +51,11 @@ export interface Settings {
   audioSource: AudioSource;
   /** Sensitivity multiplier for the audio analysis (0.25 … 4). */
   audioGain: number;
+  /**
+   * Id of an imported theme (`<userData>/themes/<id>.json`) that overrides
+   * `palette`; '' = use the built-in palette. Pro.
+   */
+  themeId: string;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -71,7 +76,11 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   audioReactive: false,
   audioSource: 'microphone',
   audioGain: 1,
+  themeId: '',
 });
+
+/** Theme ids are file names: lower-case slugs, at most 64 chars. */
+export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export const SETTINGS_LIMITS = Object.freeze({
   simScale: { min: 0.1, max: 1 },
@@ -201,6 +210,7 @@ export function normalizeSettings(input: unknown): Settings {
     audioReactive: pickBool(src.audioReactive, d.audioReactive),
     audioSource: pickEnum(src.audioSource, AUDIO_SOURCES, d.audioSource),
     audioGain: pickNumber(src.audioGain, d.audioGain, L.audioGain.min, L.audioGain.max),
+    themeId: typeof src.themeId === 'string' && THEME_ID_RE.test(src.themeId) ? src.themeId : d.themeId,
   };
 }
 

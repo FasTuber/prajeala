@@ -59,7 +59,7 @@ export class CursorEmitter implements Emitter {
     const ux = dx / dist;
     const uy = dy / dist;
     const vx = ux * impulse * ctx.height;
-    const vy = uy * impulse * ctx.height - ctx.height * 0.02;
+    const vy = uy * impulse * ctx.height + ctx.lift(0.02);
     for (let i = 1; i <= n; i++) {
       const t = i / n;
       const x = this.lastX + dx * t;
@@ -80,31 +80,30 @@ export class CursorEmitter implements Emitter {
     const preset = ctx.preset;
     const r = ctx.radius;
     const t = ctx.time;
-    const H = ctx.height;
     const speedK = clamp01(c.speed / 1600);
     const temp = Math.min(1, (0.6 + preset.heat * 0.4) * ctx.audioBoost);
 
     if (mode === 'halo') {
-      // Steady ring: a few flickering sources around the cursor, pushed upward.
+      // Steady ring: a few flickering sources around the cursor, pushed along the flow.
       const count = 5;
       for (let i = 0; i < count; i++) {
         const ang = t * 1.4 + (i / count) * Math.PI * 2;
         const fl = flicker(t * 1.3 + i * 0.7, 40 + i);
         const ox = Math.cos(ang) * r * 0.75;
         const oy = Math.sin(ang) * r * 0.5 + r * 0.25;
-        ctx.splatSource(c.x + ox, c.y + oy, r * 0.9, temp * (0.6 + 0.45 * fl), 0.05, 0, -H * (0.5 + 0.8 * fl));
+        ctx.splatSource(c.x + ox, c.y + oy, r * 0.9, temp * (0.6 + 0.45 * fl), 0.05, 0, ctx.lift(0.5 + 0.8 * fl));
       }
       this.active = true;
     } else if (mode === 'comet') {
       // Bright head that grows with speed; the fluid is dragged along with the cursor.
       const fl = flicker(t * 2.0, 7);
       const headR = r * lerp(0.9, 1.5, speedK);
-      ctx.splatSource(c.x, c.y + r * 0.15, headR, temp * (0.75 + 0.35 * fl), 0.06, c.vx * 2.0, c.vy * 2.0 - H * 0.8);
+      ctx.splatSource(c.x, c.y + r * 0.15, headR, temp * (0.75 + 0.35 * fl), 0.06, c.vx * 2.0, c.vy * 2.0 + ctx.lift(0.8));
       this.active = true;
     } else {
       // trail: a small idle flame so the cursor never goes fully cold.
       const fl = flicker(t * 2.0, 9);
-      ctx.splatSource(c.x, c.y + r * 0.15, r * 0.8, temp * (0.6 + 0.4 * fl), 0.04, 0, -H * 0.7);
+      ctx.splatSource(c.x, c.y + r * 0.15, r * 0.8, temp * (0.6 + 0.4 * fl), 0.04, 0, ctx.lift(0.7));
       this.active = true;
     }
 

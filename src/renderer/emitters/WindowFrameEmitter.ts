@@ -64,17 +64,21 @@ export class WindowFrameEmitter implements Emitter {
     const bottom = y + height;
     const margin = r * 2.5;
     const topTemp = Math.min(1, (0.6 + ambient * 0.5) * ctx.audioBoost) * fade;
+    // Sinking themes swap the edges: the main "blaze" drips from the bottom edge, embers sit on top.
+    const sinking = ctx.flow < 0;
+    const blazeY = sinking ? bottom + r * 0.1 : y - r * 0.1;
+    const emberY = sinking ? y - r * 0.1 : bottom + r * 0.1;
 
-    // Top edge: the main blaze rising from the title bar.
+    // Leading edge (title bar for fire, bottom edge for water): the main blaze.
     const topCount = Math.min(MAX_TOP, Math.max(2, Math.ceil(width / (r * 1.15))));
     const topStep = width / topCount;
     const topRadius = r * 1.3;
     for (let i = 0; i < topCount; i++) {
       const fl = flicker(t * 1.6 + i * 0.41, 100 + i);
       const px = x + (i + 0.5) * topStep + (fl - 0.5) * topStep * 0.6;
-      const py = y - r * 0.1;
+      const py = blazeY;
       if (!ctx.inView(px, py, margin)) continue;
-      const ay = -H * (0.6 + 1.4 * fl);
+      const ay = ctx.lift(0.6 + 1.4 * fl);
       const ax = (flicker(t * 1.1 + i * 0.9, 200 + i) - 0.5) * H * 0.8;
       ctx.splatSource(px, py, topRadius, topTemp * (0.55 + 0.55 * fl), 0.06 * fade, ax, ay);
     }
@@ -91,21 +95,21 @@ export class WindowFrameEmitter implements Emitter {
         const px = side === 0 ? x : right;
         if (!ctx.inView(px, py, margin)) continue;
         const ax = (side === 0 ? -1 : 1) * H * 0.25;
-        const ay = -H * (0.8 + 1.0 * fl);
+        const ay = ctx.lift(0.8 + 1.0 * fl);
         ctx.splatSource(px, py, sideRadius, topTemp * Math.min(1, 0.35 + fl), 0.03 * fade, ax, ay);
       }
     }
 
-    // Bottom edge: glowing embers and the occasional spark.
+    // Trailing edge: glowing embers and the occasional spark.
     const bottomCount = Math.min(MAX_BOTTOM, Math.max(2, Math.ceil(width / (r * 2.2))));
     const bottomStep = width / bottomCount;
     const emberRadius = r * 0.7;
     for (let i = 0; i < bottomCount; i++) {
       const fl = flicker(t * 2.6 + i * 1.3, 400 + i);
       const px = x + (i + 0.5) * bottomStep;
-      const py = bottom + r * 0.1;
+      const py = emberY;
       if (!ctx.inView(px, py, margin)) continue;
-      ctx.splatSource(px, py, emberRadius, topTemp * (0.3 + 0.7 * fl), 0.02 * fade, 0, -H * 0.5);
+      ctx.splatSource(px, py, emberRadius, topTemp * (0.3 + 0.7 * fl), 0.02 * fade, 0, ctx.lift(0.5));
     }
     if (ctx.settings.sparks) {
       this.emberAccumulator += 6 * fade * ctx.dt;
@@ -115,8 +119,9 @@ export class WindowFrameEmitter implements Emitter {
         const rng = ctx.sparks.random;
         for (let k = 0; k < n; k++) {
           const px = x + rng.next() * width;
-          if (!ctx.inView(px, bottom, margin)) continue;
-          ctx.sparks.emit(px, bottom, rng.range(-30, 30), rng.range(-160, -40), rng.range(0.6, 1.5));
+          const py = sinking ? y : bottom;
+          if (!ctx.inView(px, py, margin)) continue;
+          ctx.sparks.emit(px, py, rng.range(-30, 30), sinking ? rng.range(40, 120) : rng.range(-160, -40), rng.range(0.6, 1.5));
         }
       }
     }

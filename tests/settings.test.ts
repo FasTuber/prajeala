@@ -81,6 +81,7 @@ describe('normalizeSettings', () => {
       audioReactive: true,
       audioSource: 'system',
       audioGain: 2,
+      themeId: 'lava-lamp',
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });

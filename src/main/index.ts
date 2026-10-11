@@ -7,6 +7,7 @@
  * tray, the global shortcut or the smoke runner do.
  */
 import { Notification, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { mkdirSync } from 'node:fs';
 import {
   IPC,
   type ActiveWindowEvent,
@@ -29,11 +30,13 @@ import { LicenseStore } from './license-store';
 import { LicenseWindow } from './license-window';
 import { createLogger, setVerbose } from './log';
 import { OverlayManager } from './overlay-manager';
-import { licenseFilePath, licenseHtmlPath, preloadPath, rendererHtmlPath, settingsFilePath } from './paths';
+import { licenseFilePath, licenseHtmlPath, preloadPath, rendererHtmlPath, settingsFilePath, themesDir } from './paths';
 import { SettingsStore } from './settings-store';
 import { registerShortcuts, unregisterShortcuts } from './shortcuts';
 import { SmokeRunner } from './smoke';
+import { ThemeStore } from './theme-store';
 import { TrayController } from './tray';
+import { themesEqual, type ThemeDefinition } from '../shared/theme';
 
 const cli: CliOptions = parseCli(process.argv.slice(1));
 setVerbose(cli.verbose);
@@ -128,6 +131,12 @@ async function main(): Promise<void> {
   /** What the overlays run with: the stored settings clamped to the current tier. */
   const effectiveSettings = (): Settings => applyTierLimits(store.get(), license.tier);
   const licenseWindow = new LicenseWindow({ preloadPath, htmlPath: licenseHtmlPath, getLicense: () => license.get() });
+  const themes = new ThemeStore(themesDir(), !cli.smoke);
+  let currentTheme: ThemeDefinition = themes.resolve(effectiveSettings());
+  const resolveTheme = (): ThemeDefinition => {
+    currentTheme = themes.resolve(effectiveSettings());
+    return currentTheme;
+  };
 
   const capabilities: HostCapabilities = {
     globalClicks: false,
@@ -146,6 +155,7 @@ async function main(): Promise<void> {
     getSettings: effectiveSettings,
     updateSettings: (patch) => store.update(patch),
     getCapabilities: () => capabilities,
+    getTheme: () => currentTheme,
   });
   registerLicenseIpc(license, licenseWindow);
   installAudioPermissions({
@@ -261,6 +271,51 @@ async function main(): Promise<void> {
   const checkLicenseOnline = (): void => {
     void license.checkOnline().then((r) => reportLicenseAction('Online check', r));
   };
+  const importTheme = (): void => {
+    void dialog
+      .showOpenDialog({
+        title: 'Import a Prăjeală theme',
+        filters: [{ name: 'Prăjeală theme (JSON)', extensions: ['json'] }],
+        properties: ['openFile'],
+      })
+      .then((r) => {
+        const file = r.filePaths[0];
+        if (r.canceled || !file) return;
+        const result = themes.importFile(file);
+        if (!result.ok || !result.theme) {
+          notify('Prăjeală theme', `Import failed: ${result.error ?? 'unknown error'}`);
+          return;
+        }
+        store.update({ themeId: result.theme.id });
+        notify('Prăjeală theme', `Imported "${result.theme.name}".`);
+      })
+      .catch((err: unknown) => log.warn('import dialog failed:', err));
+  };
+  const exportTheme = (): void => {
+    const theme = resolveTheme();
+    void dialog
+      .showSaveDialog({
+        title: 'Export the current theme',
+        defaultPath: `${theme.id}.json`,
+        filters: [{ name: 'Prăjeală theme (JSON)', extensions: ['json'] }],
+      })
+      .then((r) => {
+        if (r.canceled || !r.filePath) return;
+        const result = themes.exportTo(theme, r.filePath);
+        notify('Prăjeală theme', result.ok ? `Exported "${theme.name}" to ${r.filePath}.` : `Export failed: ${result.error ?? 'unknown error'}`);
+      })
+      .catch((err: unknown) => log.warn('export dialog failed:', err));
+  };
+  const openThemesFolder = (): void => {
+    try {
+      mkdirSync(themes.dir, { recursive: true });
+    } catch (err) {
+      log.debug('could not create the themes folder:', err);
+    }
+    void shell.openPath(themes.dir).then((err) => {
+      if (err) log.warn(`could not open ${themes.dir}: ${err}`);
+    });
+  };
 
   const tray = new TrayController({
     getSettings: () => store.get(),
@@ -268,6 +323,10 @@ async function main(): Promise<void> {
     getCapabilities: () => capabilities,
     getLicense: () => license.get(),
     getAudioStatus: audioStatusSummary,
+    listThemes: () => themes.list(),
+    importTheme,
+    exportTheme,
+    openThemesFolder,
     testBurst: () => testBurst(1),
     openSettingsFile,
     openLicenseWindow: () => licenseWindow.show(),
@@ -301,6 +360,12 @@ async function main(): Promise<void> {
   const pushEffectiveSettings = (): void => {
     const effective = effectiveSettings();
     overlays.sendToAll(IPC.settings, () => effective);
+    const previousTheme = currentTheme;
+    const theme = resolveTheme();
+    if (!themesEqual(theme, previousTheme)) {
+      log.info(`theme: ${theme.name} (${theme.id})`);
+      overlays.sendToAll(IPC.theme, () => theme);
+    }
     applySettings(effective);
     tray.refresh();
   };

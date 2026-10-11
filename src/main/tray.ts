@@ -8,6 +8,7 @@ import type { AudioStatus, HostCapabilities } from '../shared/ipc';
 import { applyTierLimits, isIntensityAllowed, isPaletteAllowed, limitsFor, type LicenseInfo } from '../shared/license';
 import { PALETTE_DEFINITIONS } from '../shared/palettes';
 import { AUDIO_SOURCES, CURSOR_MODES, INTENSITIES, PALETTES, type AudioSource, type Settings } from '../shared/settings';
+import type { ThemeDefinition } from '../shared/theme';
 import { createLogger } from './log';
 import { trayAssetPath } from './paths';
 
@@ -60,6 +61,11 @@ export interface TrayActions {
   getLicense(): LicenseInfo;
   /** Latest sound-reactivity status reported by the overlays (null = nothing yet). */
   getAudioStatus(): AudioStatus | null;
+  /** Imported themes on disk. */
+  listThemes(): ThemeDefinition[];
+  importTheme(): void;
+  exportTheme(): void;
+  openThemesFolder(): void;
   testBurst(): void;
   openSettingsFile(): void;
   openLicenseWindow(): void;
@@ -149,11 +155,31 @@ export class TrayController {
       return {
         label: lock(PALETTE_DEFINITIONS[value].label, !allowed),
         type: 'radio',
-        checked: s.palette === value,
+        checked: s.themeId === '' && s.palette === value,
         enabled: allowed,
-        click: set({ palette: value }),
+        click: set({ palette: value, themeId: '' }),
       };
     });
+    const themesAllowed = limitsFor(tier).customThemes;
+    const customThemes = safeList(() => this.actions.listThemes());
+    if (customThemes.length > 0) {
+      palette.push({ type: 'separator' });
+      for (const theme of customThemes) {
+        palette.push({
+          label: lock(theme.name, !themesAllowed),
+          type: 'radio',
+          checked: s.themeId === theme.id,
+          enabled: themesAllowed,
+          click: set({ themeId: theme.id }),
+        });
+      }
+    }
+    palette.push(
+      { type: 'separator' },
+      { label: lock('Import theme…', !themesAllowed), enabled: themesAllowed, click: () => this.actions.importTheme() },
+      { label: 'Export current theme…', click: () => this.actions.exportTheme() },
+      { label: 'Open themes folder', click: () => this.actions.openThemesFolder() },
+    );
     const windowAllowed = limitsFor(tier).burnActiveWindow;
     const audioAllowed = limitsFor(tier).audioReactive;
 
@@ -187,7 +213,7 @@ export class TrayController {
       },
       { type: 'separator' },
       { label: 'Intensity', submenu: intensity },
-      { label: 'Palette', submenu: palette },
+      { label: 'Theme', submenu: palette },
       { label: 'Cursor fire', submenu: cursor },
       {
         label: caps.globalClicks ? 'Click bursts' : 'Click bursts (needs uiohook)',
@@ -304,6 +330,15 @@ export class TrayController {
       items.push({ type: 'separator' }, { label: 'Buy Prăjeală Pro…', click: () => this.actions.openBuyPage() });
     }
     return items;
+  }
+}
+
+function safeList<T>(fn: () => T[]): T[] {
+  try {
+    return fn();
+  } catch (err) {
+    log.warn('could not list themes:', err);
+    return [];
   }
 }
 

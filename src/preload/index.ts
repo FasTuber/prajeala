@@ -20,6 +20,7 @@ import {
 } from '../shared/ipc';
 import type { LicenseActionResult, LicenseInfo } from '../shared/license';
 import type { Settings } from '../shared/settings';
+import type { ThemeDefinition } from '../shared/theme';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_event: IpcRendererEvent, payload: T): void => {
@@ -39,6 +40,9 @@ const api: PrajealaApi = {
   getDisplay: () => ipcRenderer.invoke(IPC.getDisplay) as Promise<DisplayInfo>,
   getCapabilities: () => ipcRenderer.invoke(IPC.getCapabilities) as Promise<HostCapabilities>,
   updateSettings: (patch: Partial<Settings>) => ipcRenderer.invoke(IPC.updateSettings, patch) as Promise<Settings>,
+
+  getTheme: () => ipcRenderer.invoke(IPC.getTheme) as Promise<ThemeDefinition>,
+  onTheme: (cb) => subscribe<ThemeDefinition>(IPC.theme, cb),
 
   getLicense: () => ipcRenderer.invoke(IPC.getLicense) as Promise<LicenseInfo>,
   activateLicense: (key: string) => ipcRenderer.invoke(IPC.activateLicense, String(key)) as Promise<LicenseActionResult>,

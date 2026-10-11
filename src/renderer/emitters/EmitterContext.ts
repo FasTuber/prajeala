@@ -26,6 +26,8 @@ export class EmitterContext {
   preset: IntensityPreset = INTENSITY_PRESETS[DEFAULT_SETTINGS.intensity];
   /** Sound levels for this frame (all zero / inactive when sound reactivity is off). */
   audio: AudioLevels = emptyLevels();
+  /** Theme flow: multiplier for the emitters' vertical push (1 fire rises, -1 water sinks). */
+  flow = 1;
 
   constructor(
     readonly queue: SplatQueue,
@@ -50,6 +52,14 @@ export class EmitterContext {
 
   inView(x: number, y: number, margin: number): boolean {
     return x >= -margin && x <= this.width + margin && y >= -margin && y <= this.height + margin;
+  }
+
+  /**
+   * Vertical push (CSS px/s or px/s²) of `k` screen heights "along the flow":
+   * negative (upward on screen) for fire, downward when the theme sinks.
+   */
+  lift(k: number): number {
+    return -this.height * k * this.flow;
   }
 
   /**

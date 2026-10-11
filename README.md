@@ -39,10 +39,10 @@ fereastra e click-through, deci lucrezi normal, doar că ecranul arde.
 | Aplicații | foc pe conturul ferestrei active (necesită `get-windows`) |
 | Ecran | foc care urcă de la baza fiecărui ecran |
 | Scântei | particule CPU emise de cursor și de explozii |
-| Palete | `classic`, `blue`, `green`, `plasma`, `ember` |
+| Teme | `classic`, `blue`, `green`, `plasma`, `ember`, `ice` (gheață/apă — curge în jos), `electric` (arcuri care trosnesc), `neon` (tuburi strălucitoare); fiecare temă = paletă + parametri de simulare; import/export JSON |
 | Intensități | `low`, `medium`, `high`, `inferno` |
 | Sunet | focul pulsează după muzică: microfon sau audio de sistem (`getUserMedia`), benzi bass/mid/high + detecție de beat; nimic nu se înregistrează sau trimite |
-| Free / Pro | versiunea Free are paleta `classic`, intensitate până la `medium`, fără foc pe ferestre și fără reacție la sunet; **Pro** deblochează tot — vezi [Prăjeală Pro](#pro) |
+| Free / Pro | versiunea Free are paleta `classic`, intensitate până la `medium`, fără foc pe ferestre, fără sunet și fără teme importate; **Pro** deblochează tot — vezi [Prăjeală Pro](#pro) |
 
 ### Instalare
 
@@ -70,7 +70,8 @@ Click pe icoana cu flacără din tray:
 
 - **Pauză / Reluare** — oprește randarea fără să închidă aplicația;
 - **Intensitate** — Low / Medium / High / Inferno;
-- **Paletă** — Classic / Blue / Green / Plasma / Ember;
+- **Temă** — Classic / Blue / Green / Plasma / Ember / Ice & water / Electricity / Neon, temele importate,
+  **Import theme…**, **Export current theme…**, **Open themes folder**;
 - **Cursor** — Off / Halo / Trail / Comet;
 - comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **Scântei**,
   **Sound reactive** (Pro);
@@ -80,6 +81,35 @@ Click pe icoana cu flacără din tray:
 - **Licență: Free / Pro** — introdu cheia (fereastră sau din clipboard), verifică online, cumpără Pro
   (opțiunile marcate cu „(Pro)” sunt dezactivate în Free);
 - **Test explozie**, **Ieșire**.
+
+### Teme (format JSON)
+
+O temă = o paletă de culori + „aroma” simulării. Temele încorporate (una pentru fiecare paletă) pot fi
+exportate din tray ca punct de plecare; fișierele importate ajung în `userData/themes/<id>.json` și apar
+în meniul **Temă** (Pro). Un fișier de temă:
+
+```json
+{
+  "format": "prajeala-theme",
+  "version": 1,
+  "id": "lava-lamp",
+  "name": "Lava lamp",
+  "stops": [[0, 0, 0, 0], [0.5, 0.9, 0.2, 0.6], [1, 1, 1, 1]],
+  "spark": [1, 0.5, 0.9],
+  "sim":  { "buoyancy": 0.5, "curl": 1.5, "cooling": 1, "heatLoss": 1, "velocityLoss": 1, "flow": 1, "maxSpeed": 1 },
+  "look": { "detail": 0.9, "glow": 0.8, "smoke": 0.14, "smokeColor": [0.07, 0.06, 0.06], "noiseSpeed": 1 }
+}
+```
+
+- `stops` — opriri `[t, r, g, b]` (t crescător de la 0 la 1, culori 0–1); `spark` — culoarea scânteilor;
+- `sim` — multiplicatori peste presetul de intensitate: `buoyancy` (negativ = curge în jos, ca `ice`),
+  `curl` (vârtej), `cooling` / `heatLoss` (cât trăiesc flăcările), `velocityLoss` (vâscozitate),
+  `flow` (direcția împingerii emițătorilor: 1 sus, −1 jos), `maxSpeed`;
+- `look` — `detail` (eroziune cu zgomot: limbi zdrențuite vs tuburi netede), `glow`, `smoke` + `smokeColor`,
+  `noiseSpeed` (cât de repede „trosnește” textura).
+
+Câmpurile lipsă iau valorile implicite, numerele sunt limitate la intervale sigure, iar fișierele invalide
+sunt ignorate cu un avertisment în log (`src/shared/theme.ts` → `validateTheme`).
 
 ### Reacție la sunet
 
@@ -104,7 +134,7 @@ procesul: nu se înregistrează, nu se redă, nu se trimite nicăieri.
 
 | | Free | Pro |
 |---|---|---|
-| Palete | `classic` | toate |
+| Teme | `classic` | toate + teme importate (JSON) |
 | Intensitate | până la `medium` | până la `inferno` |
 | Foc pe fereastra activă | – | ✓ |
 | Reacție la sunet | – | ✓ |
@@ -258,7 +288,7 @@ Structura proiectului:
 src/main/       procesul principal: overlay-uri, tracker cursor/fereastră, tray, scurtături, setări, licență, --smoke
 src/preload/    puntea contextBridge (window.prajeala)
 src/renderer/   simularea WebGL2, emițătorii, scânteile, HUD-ul de debug, pagina de licență
-src/shared/     contractul comun: settings.ts, ipc.ts, palettes.ts, license.ts (pure, testate cu Vitest)
+src/shared/     contractul comun: settings.ts, ipc.ts, palettes.ts, theme.ts, license.ts (pure, testate cu Vitest)
 scripts/        build.mjs (esbuild), smoke.mjs, gen-icons.mjs, license-keygen.mjs, license-sign.mjs
 tests/          teste unitare
 assets/         icoane generate (app + tray)
@@ -294,13 +324,17 @@ keep working underneath:
 - Cursor modes `off` / `halo` / `trail` / `comet`; cursor movement pushes the fluid.
 - Click bursts (needs `uiohook-napi`), fire on the active window frame (needs `get-windows`),
   screen-bottom fire, CPU spark particles.
-- Palettes `classic`, `blue`, `green`, `plasma`, `ember`; intensities `low`, `medium`, `high`, `inferno`.
+- Themes `classic`, `blue`, `green`, `plasma`, `ember`, `ice` (water — flows down), `electric` (crackling
+  arcs), `neon` (glowing tubes): each a palette plus simulation flavour (buoyancy, swirl, cooling, flow
+  direction, glow, smoke). Export any theme from the tray, edit the JSON (`"format": "prajeala-theme"`,
+  see the Romanian section for the fields) and import it back (Pro); imported themes live in
+  `userData/themes/`. Intensities `low`, `medium`, `high`, `inferno`.
 - **Sound reactive** (Pro): flames pulse with the music from the microphone or, on Windows, system audio
   (loopback). Bass/mid/high bands with auto-levelling and beat detection; nothing is recorded or sent
   anywhere. `?audio=sim` in the browser plays a built-in fake track. Settings `audioReactive`,
   `audioSource`, `audioGain`; macOS asks for microphone access once.
-- **Free / Pro**: Free has the `classic` palette, intensity up to `medium`, no fire on windows and no sound
-  reactivity; Pro unlocks everything (see [Pro](#pro-1)).
+- **Free / Pro**: Free has the `classic` palette, intensity up to `medium`, no fire on windows, no sound
+  reactivity and no imported themes; Pro unlocks everything (see [Pro](#pro-1)).
 
 ### Install
 
@@ -318,7 +352,8 @@ install, the app still runs with click bursts / active-window fire disabled.
 
 ### Tray menu
 
-Pause/Resume · Intensity (Low/Medium/High/Inferno) · Palette · Cursor mode · toggles for click bursts,
+Pause/Resume · Intensity (Low/Medium/High/Inferno) · Theme (built-ins, imported, import/export) · Cursor
+mode · toggles for click bursts,
 active-window fire, screen-bottom fire, sparks and sound reactivity · Sound (status, source, sensitivity) ·
 max FPS · launch at login · debug HUD · Licence (enter key / clipboard / check online / buy) · test burst ·
 Quit. Items marked "(Pro)" are disabled on Free.
@@ -328,7 +363,7 @@ Quit. Items marked "(Pro)" are disabled on Free.
 
 | | Free | Pro |
 |---|---|---|
-| Palettes | `classic` | all |
+| Themes | `classic` | all + imported JSON themes |
 | Intensity | up to `medium` | up to `inferno` |
 | Fire on the active window | – | ✓ |
 | Sound reactivity | – | ✓ |

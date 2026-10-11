@@ -35,3 +35,8 @@ export function settingsFilePath(): string {
 export function licenseFilePath(): string {
   return path.join(app.getPath('userData'), 'prajeala-license.json');
 }
+
+/** Imported JSON themes (`<id>.json`). */
+export function themesDir(): string {
+  return path.join(app.getPath('userData'), 'themes');
+}

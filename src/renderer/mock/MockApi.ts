@@ -19,6 +19,7 @@ import type {
 } from '../../shared/ipc';
 import { FREE_LICENSE_INFO, applyTierLimits, parseLicenseKey, type LicenseActionResult, type LicenseInfo } from '../../shared/license';
 import { CURSOR_MODES, INTENSITIES, PALETTES, mergeSettings, normalizeSettings, type Settings } from '../../shared/settings';
+import { BUILTIN_THEMES, type ThemeDefinition } from '../../shared/theme';
 import type { RendererOptions } from '../app/options';
 import { SyntheticCursor } from './SyntheticCursor';
 
@@ -61,10 +62,13 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   };
   /** Like the main process: the renderer only ever sees settings clamped to the tier. */
   const effective = (): Settings => applyTierLimits(settings, license.tier);
+  const themeSignal = new Signal<ThemeDefinition>();
+  const currentTheme = (): ThemeDefinition => BUILTIN_THEMES[effective().palette];
   const setLicense = (next: LicenseInfo): void => {
     license = next;
     licenseSignal.emit(license);
     settingsSignal.emit(effective());
+    themeSignal.emit(currentTheme());
   };
   const start = performance.now();
   const synthetic = new SyntheticCursor(0.5);
@@ -112,8 +116,10 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   window.addEventListener('resize', () => displaySignal.emit(display()));
 
   const setSettings = (patch: Partial<Settings>): void => {
+    const before = effective().palette;
     settings = mergeSettings(settings, patch);
     settingsSignal.emit(effective());
+    if (effective().palette !== before) themeSignal.emit(currentTheme());
   };
   window.addEventListener('keydown', (e) => {
     switch (e.key) {
@@ -196,6 +202,8 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
       setSettings(patch);
       return Promise.resolve(settings);
     },
+    getTheme: () => Promise.resolve(currentTheme()),
+    onTheme: (cb) => themeSignal.on(cb),
     getLicense: () => Promise.resolve(license),
     activateLicense: (key): Promise<LicenseActionResult> => {
       const parsed = parseLicenseKey(key);

@@ -14,7 +14,6 @@ import type {
   Unsubscribe,
 } from '../../shared/ipc';
 import type { LicenseInfo } from '../../shared/license';
-import { PALETTE_DEFINITIONS } from '../../shared/palettes';
 import {
   DEFAULT_SETTINGS,
   INTENSITY_PRESETS,
@@ -22,6 +21,7 @@ import {
   type IntensityPreset,
   type Settings,
 } from '../../shared/settings';
+import { BUILTIN_THEMES, themePalette, themesEqual, type ThemeDefinition } from '../../shared/theme';
 import { AudioReactor } from '../audio/AudioReactor';
 import { FireCursor } from '../cursor/FireCursor';
 import { BurstEmitter } from '../emitters/BurstEmitter';
@@ -61,6 +61,10 @@ const HUD_INTERVAL_MS = 250;
 export class App {
   private settings: Settings = DEFAULT_SETTINGS;
   private preset: IntensityPreset = INTENSITY_PRESETS[DEFAULT_SETTINGS.intensity];
+  /** Resolved theme (built-in palette flavour or an imported JSON theme). */
+  private theme: ThemeDefinition = BUILTIN_THEMES[DEFAULT_SETTINGS.palette];
+  /** True once the host pushed a theme; until then the palette setting picks a built-in. */
+  private themeFromHost = false;
   private display: DisplayInfo | null = null;
   private caps: HostCapabilities | null = null;
   /** Read-only here (the main process already clamps the settings it sends); shown in the HUD. */
@@ -146,6 +150,12 @@ export class App {
       this.log('warn', `initial state unavailable, using defaults: ${describe(err)}`);
       this.applySettings(DEFAULT_SETTINGS);
     }
+    try {
+      // Older hosts have no getTheme: the palette setting then selects a built-in theme.
+      if (typeof this.api.getTheme === 'function') this.applyTheme(await this.api.getTheme(), true);
+    } catch (err) {
+      this.log('debug', `theme unavailable, using the palette: ${describe(err)}`);
+    }
 
     let error: string | undefined;
     try {
@@ -207,7 +217,7 @@ export class App {
     try {
       sim = new FireSimulation(device, w, h, this.queue);
       renderer = new FireRenderer(device, sim.width, sim.height);
-      renderer.setPalette(PALETTE_DEFINITIONS[this.settings.palette]);
+      renderer.setPalette(themePalette(this.theme));
       fireCursor = new FireCursor(device);
       const sparkRenderer = new SparkRenderer(device, this.sparks.capacity);
       this.gpu = { device, sim, renderer, fireCursor, sparkRenderer };
@@ -310,9 +320,7 @@ export class App {
     this.sparks.budget = this.preset.sparkBudget;
     this.refreshSimParams();
     this.hud.setVisible(next.showDebugHud || this.options.hud);
-    if (this.gpu && next.palette !== prev.palette) {
-      this.gpu.renderer.setPalette(PALETTE_DEFINITIONS[next.palette]);
-    }
+    if (!this.themeFromHost && next.palette !== prev.palette) this.applyTheme(BUILTIN_THEMES[next.palette], false);
     if (next.simScale !== prev.simScale) this.updateSimSize();
     if (!next.sparks) this.sparks.clear();
     if (next.enabled && !prev.enabled) {
@@ -367,22 +375,38 @@ export class App {
     }
   }
 
+  /** Applies a theme: palette LUT, look and simulation flavour. */
+  private applyTheme(theme: ThemeDefinition, fromHost: boolean): void {
+    if (fromHost) this.themeFromHost = true;
+    if (themesEqual(theme, this.theme)) return;
+    this.theme = theme;
+    this.gpu?.renderer.setPalette(themePalette(theme));
+    this.look.detail = theme.look.detail;
+    this.look.glow = theme.look.glow;
+    this.look.smoke = theme.look.smoke;
+    this.look.smokeColor = theme.look.smokeColor;
+    this.look.noiseSpeed = theme.look.noiseSpeed * (theme.sim.flow < 0 ? -1 : 1);
+    this.ctx.flow = theme.sim.flow;
+    this.refreshSimParams();
+  }
+
   private refreshSimParams(): void {
     const p = this.preset;
     const s = this.simParams;
     const a = this.ctx.audio;
+    const th = this.theme.sim;
     // Music lifts and twists the whole field a little: buoyancy follows the level, swirl the highs.
     const lift = a.active ? 1 + 0.45 * a.level + 0.3 * a.beat : 1;
     const swirl = a.active ? 1 + 0.5 * a.high : 1;
     // Flame lifetime ≈ 1 / cooling: low 0.25 s, medium 0.36 s, high 0.56 s, inferno 1 s.
-    s.heatDissipation = p.heatDissipation;
+    s.heatDissipation = clamp(1 - (1 - p.heatDissipation) * th.heatLoss, 0, 1);
     s.smokeDissipation = 0.4;
     // Presets express velocity retention generously; swirl should settle within a couple of seconds.
-    s.velocityDissipation = Math.pow(p.velocityDissipation, 8);
-    s.cooling = (1 - p.heatDissipation) * 35;
-    s.buoyancy = p.buoyancy * 1.1 * lift;
-    s.curl = p.curl * 2 * swirl;
-    s.maxSpeed = (1.0 + p.buoyancy * 0.35) * lift;
+    s.velocityDissipation = clamp(1 - (1 - Math.pow(p.velocityDissipation, 8)) * th.velocityLoss, 0, 1);
+    s.cooling = (1 - p.heatDissipation) * 35 * th.cooling;
+    s.buoyancy = p.buoyancy * 1.1 * lift * th.buoyancy;
+    s.curl = p.curl * 2 * swirl * th.curl;
+    s.maxSpeed = (1.0 + p.buoyancy * 0.35) * lift * th.maxSpeed;
     s.pressureIterations = this.settings.pressureIterations;
   }
 
@@ -400,6 +424,7 @@ export class App {
         this.license = info;
       }),
     );
+    if (typeof api.onTheme === 'function') this.unsubscribers.push(api.onTheme((theme) => this.applyTheme(theme, true)));
   }
 
   private handleCursor(e: CursorEvent): void {
@@ -624,7 +649,7 @@ export class App {
       );
     }
     if (s.sparks) {
-      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, PALETTE_DEFINITIONS[s.palette].spark);
+      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, this.theme.spark);
     }
   }
 
@@ -692,7 +717,7 @@ export class App {
       `prăjeală ${state} · ${this.fps} fps (cap ${s.maxFps}) · frames ${this.frames}${this.env.mock ? ' · mock' : ''}`,
       `sim ${g?.sim.width ?? 0}×${g?.sim.height ?? 0} (scale ${s.simScale}, ${s.pressureIterations} it) · canvas ${this.canvas.width}×${this.canvas.height} @${this.dpr.toFixed(2)}x`,
       `gpu ${caps?.renderer ?? 'n/a'} · float ${caps?.floatTextures ? 'yes' : 'no'} · linear ${caps?.linearFiltering ? 'yes' : 'no'}`,
-      `intensity ${s.intensity} · palette ${s.palette} · tier ${this.license?.tier ?? '?'} · emitters ${active.join(' ') || 'none'}`,
+      `intensity ${s.intensity} · theme ${this.theme.id}${this.theme.basePalette && this.theme.id !== this.theme.basePalette ? ` (${this.theme.basePalette})` : ''} · tier ${this.license?.tier ?? '?'} · emitters ${active.join(' ') || 'none'}`,
       `sparks ${this.sparks.count}/${this.sparks.budget} · queue drops ${this.queue.dropped}`,
       `cursor ${c.hasPosition ? `${c.x.toFixed(0)},${c.y.toFixed(0)} ${c.inside ? 'in' : 'out'} ${c.speed.toFixed(0)} px/s` : 'n/a'}`,
       `display ${this.display ? `#${this.display.index + 1}/${this.display.total} ${this.display.bounds.width}×${this.display.bounds.height} sf ${this.display.scaleFactor}` : 'n/a'} · caps ${this.caps ? `${this.caps.platform} clicks:${this.caps.globalClicks ? 'y' : 'n'} window:${this.caps.activeWindow ? 'y' : 'n'}${this.caps.smoke ? ' smoke' : ''}` : 'n/a'}`,

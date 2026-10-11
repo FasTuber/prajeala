@@ -39,6 +39,8 @@ export interface TierLimits {
   burnActiveWindow: boolean;
   /** Sound reactivity. */
   audioReactive: boolean;
+  /** Imported JSON themes (settings.themeId). */
+  customThemes: boolean;
 }
 
 /** What the Free tier can do. Change the product here, nowhere else. */
@@ -47,6 +49,7 @@ export const FREE_LIMITS: Readonly<TierLimits> = Object.freeze({
   maxIntensity: 'medium' as Intensity,
   burnActiveWindow: false,
   audioReactive: false,
+  customThemes: false,
 });
 
 export const PRO_LIMITS: Readonly<TierLimits> = Object.freeze({
@@ -54,6 +57,7 @@ export const PRO_LIMITS: Readonly<TierLimits> = Object.freeze({
   maxIntensity: INTENSITIES[INTENSITIES.length - 1] ?? 'inferno',
   burnActiveWindow: true,
   audioReactive: true,
+  customThemes: true,
 });
 
 export function limitsFor(tier: Tier): Readonly<TierLimits> {
@@ -94,6 +98,7 @@ export function applyTierLimits(settings: Settings, tier: Tier): Settings {
   out.intensity = clampIntensity(tier, settings.intensity);
   if (!limits.burnActiveWindow) out.burnActiveWindow = false;
   if (!limits.audioReactive) out.audioReactive = false;
+  if (!limits.customThemes) out.themeId = '';
   return out;
 }
 
@@ -108,6 +113,8 @@ export function isLockedForTier(tier: Tier, key: keyof Settings, value: unknown)
       return value === true && !limitsFor(tier).burnActiveWindow;
     case 'audioReactive':
       return value === true && !limitsFor(tier).audioReactive;
+    case 'themeId':
+      return typeof value === 'string' && value.length > 0 && !limitsFor(tier).customThemes;
     default:
       return false;
   }

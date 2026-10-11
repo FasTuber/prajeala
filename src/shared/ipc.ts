@@ -11,6 +11,7 @@
  */
 import type { LicenseActionResult, LicenseInfo } from './license';
 import type { AudioSource, Settings } from './settings';
+import type { ThemeDefinition } from './theme';
 
 export type { AudioSource };
 
@@ -129,6 +130,8 @@ export const IPC = {
   testBurst: 'prajeala:test-burst',
   /** Licence snapshot (tier, status); sent to overlays and the licence window. */
   license: 'prajeala:license',
+  /** Resolved theme (built-in palette or imported JSON) the overlays should render with. */
+  theme: 'prajeala:theme',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
@@ -141,6 +144,7 @@ export const IPC = {
   getDisplay: 'prajeala:get-display',
   getCapabilities: 'prajeala:get-capabilities',
   updateSettings: 'prajeala:update-settings',
+  getTheme: 'prajeala:get-theme',
   getLicense: 'prajeala:get-license',
   activateLicense: 'prajeala:activate-license',
   deactivateLicense: 'prajeala:deactivate-license',
@@ -157,6 +161,9 @@ export interface PrajealaApi {
   getDisplay(): Promise<DisplayInfo>;
   getCapabilities(): Promise<HostCapabilities>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
+  /** The theme to render with (the host resolves settings.themeId / palette). */
+  getTheme(): Promise<ThemeDefinition>;
+  onTheme(cb: (theme: ThemeDefinition) => void): Unsubscribe;
 
   // Licence (Free / Pro). Overlays only read; the licence window drives the actions.
   getLicense(): Promise<LicenseInfo>;
