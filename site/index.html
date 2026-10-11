@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prăjeală — set your screen on fire</title>
+    <meta
+      name="description"
+      content="Prăjeală is a GPU fluid-simulated fire overlay for Windows, macOS and Linux: it burns your cursor, your apps and your desktop, and never gets in the way."
+    />
+    <meta property="og:title" content="Prăjeală — set your screen on fire" />
+    <meta property="og:description" content="A real-time fire simulation on top of every app. Free, with an optional one-time Pro upgrade." />
+    <meta property="og:image" content="img/hero.jpg" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="img/icon.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #120d0b;
+        --bg-2: #1b1411;
+        --card: #1f1714;
+        --line: #3a2c26;
+        --text: #f6ece6;
+        --muted: #b9a69b;
+        --faint: #85736a;
+        --accent: #ff7a1a;
+        --accent-2: #ffb347;
+        --ink: #1b0d05;
+        --ok: #7ddc8a;
+        --grad: linear-gradient(135deg, #ff5a1f 0%, #ff8a1f 45%, #ffc24a 100%);
+        --radius: 18px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      html[data-lang='en'] [lang='ro'],
+      html[data-lang='ro'] [lang='en'] {
+        display: none !important;
+      }
+      a {
+        color: var(--accent-2);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 16px;
+      }
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        backdrop-filter: blur(10px);
+        background: rgba(18, 13, 11, 0.78);
+        border-bottom: 1px solid rgba(58, 44, 38, 0.6);
+      }
+      nav .wrap {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        height: 60px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 750;
+        font-size: 18px;
+        color: var(--text);
+      }
+      .brand img {
+        width: 30px;
+        height: 30px;
+      }
+      nav .links {
+        display: flex;
+        gap: 18px;
+        margin-left: auto;
+        font-size: 14.5px;
+      }
+      nav .links a {
+        color: var(--muted);
+      }
+      .lang {
+        border: 1px solid var(--line);
+        background: none;
+        color: var(--muted);
+        border-radius: 8px;
+        padding: 4px 9px;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 12px;
+        padding: 12px 20px;
+        font-weight: 650;
+        border: 1px solid var(--line);
+        color: var(--text);
+        background: var(--card);
+      }
+      .btn:hover {
+        text-decoration: none;
+        border-color: #5a4339;
+      }
+      .btn.primary {
+        background: var(--grad);
+        color: var(--ink);
+        border-color: transparent;
+        box-shadow: 0 10px 30px rgba(255, 110, 20, 0.3);
+      }
+      .btn.disabled {
+        opacity: 0.6;
+        pointer-events: none;
+      }
+      header.hero {
+        padding: 64px 0 32px;
+        background: radial-gradient(80% 60% at 50% 0%, rgba(255, 90, 31, 0.18), transparent 70%);
+      }
+      .hero h1 {
+        font-size: clamp(36px, 6vw, 64px);
+        line-height: 1.05;
+        margin: 0 0 16px;
+        letter-spacing: -1px;
+      }
+      .hero h1 .fire {
+        background: var(--grad);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .hero p.sub {
+        font-size: clamp(17px, 2.2vw, 20px);
+        color: var(--muted);
+        max-width: 720px;
+        margin: 0 0 26px;
+      }
+      .cta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+      }
+      .cta small {
+        color: var(--faint);
+        font-size: 13.5px;
+      }
+      .shot {
+        margin-top: 40px;
+        border-radius: var(--radius);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        box-shadow: 0 40px 120px rgba(255, 90, 31, 0.16), 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      section {
+        padding: 72px 0 8px;
+      }
+      section h2 {
+        font-size: clamp(28px, 4vw, 40px);
+        margin: 0 0 10px;
+        letter-spacing: -0.5px;
+      }
+      section p.lead {
+        color: var(--muted);
+        margin: 0 0 30px;
+        max-width: 720px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
+      }
+      .feature {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 20px;
+      }
+      .feature .emoji {
+        font-size: 26px;
+      }
+      .feature h3 {
+        margin: 8px 0 6px;
+        font-size: 18px;
+      }
+      .feature p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .pricing {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+        gap: 16px;
+        align-items: stretch;
+      }
+      .plan {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 26px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .plan.pro {
+        border-color: rgba(255, 122, 26, 0.55);
+        background: radial-gradient(120% 120% at 100% 0%, rgba(255, 122, 26, 0.16), transparent 55%), var(--card);
+      }
+      .plan h3 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .price {
+        font-size: 40px;
+        font-weight: 800;
+        letter-spacing: -1px;
+      }
+      .price small {
+        font-size: 15px;
+        font-weight: 500;
+        color: var(--muted);
+        letter-spacing: 0;
+      }
+      .plan ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+        flex: 1;
+      }
+      .plan li {
+        display: flex;
+        gap: 10px;
+        color: var(--text);
+      }
+      .plan li::before {
+        content: '✓';
+        color: var(--ok);
+        font-weight: 800;
+      }
+      .plan.pro li::before {
+        content: '🔥';
+        font-size: 14px;
+      }
+      .note {
+        color: var(--faint);
+        font-size: 13.5px;
+        margin: 0;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+        gap: 36px;
+        align-items: start;
+      }
+      .split img {
+        width: 100%;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+      }
+      .steps {
+        counter-reset: step;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 14px;
+      }
+      .steps li {
+        counter-increment: step;
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 12px;
+        color: var(--muted);
+      }
+      .steps li::before {
+        content: counter(step);
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--grad);
+        color: var(--ink);
+        font-weight: 800;
+      }
+      .steps b {
+        color: var(--text);
+      }
+      details {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px 18px;
+      }
+      details + details {
+        margin-top: 10px;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 650;
+      }
+      details p {
+        color: var(--muted);
+        margin: 10px 0 0;
+      }
+      footer {
+        margin-top: 80px;
+        border-top: 1px solid var(--line);
+        padding: 28px 0 40px;
+        color: var(--faint);
+        font-size: 14px;
+      }
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 22px;
+        align-items: center;
+      }
+      @media (max-width: 760px) {
+        nav .links {
+          display: none;
+        }
+        .lang {
+          margin-left: auto;
+        }
+        .split {
+          grid-template-columns: 1fr;
+        }
+        header.hero {
+          padding-top: 40px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div class="wrap">
+        <a class="brand" href="#"><img src="img/icon.png" alt="" />Prăjeală</a>
+        <div class="links">
+          <a href="#features"><span lang="en">Features</span><span lang="ro">Funcții</span></a>
+          <a href="#pro"><span lang="en">Pricing</span><span lang="ro">Prețuri</span></a>
+          <a href="#download"><span lang="en">Download</span><span lang="ro">Descarcă</span></a>
+          <a href="#faq">FAQ</a>
+        </div>
+        <button class="lang" id="lang" type="button" aria-label="Language / Limba">RO</button>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="wrap">
+        <h1>
+          <span lang="en">Set your screen <span class="fire">on fire.</span></span>
+          <span lang="ro">Dă foc <span class="fire">ecranului.</span></span>
+        </h1>
+        <p class="sub" lang="en">
+          A real-time fluid simulation that burns your cursor, the app you are using and the bottom of your screen —
+          on top of everything, and completely click-through. Windows, macOS and Linux.
+        </p>
+        <p class="sub" lang="ro">
+          O simulare de fluid în timp real care arde cursorul, aplicația în care lucrezi și baza ecranului — peste
+          toate ferestrele, fără să te încurce: click-urile trec prin foc. Windows, macOS și Linux.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="#download"><span lang="en">Download free</span><span lang="ro">Descarcă gratuit</span></a>
+          <a class="btn" href="#pro" data-buy-label
+            ><span lang="en">Get Pro — <span data-price></span></span><span lang="ro">Ia Pro — <span data-price></span></span
+          ></a>
+          <small lang="en">7 days of Pro included, no card needed.</small>
+          <small lang="ro">7 zile de Pro incluse, fără card.</small>
+        </div>
+        <div class="shot"><img src="img/hero.jpg" width="1280" height="720" alt="A code editor window burning with Prăjeală, flames along its frame and around the mouse cursor" /></div>
+      </div>
+    </header>
+
+    <section id="features">
+      <div class="wrap">
+        <h2><span lang="en">Fire everywhere, in your way nowhere</span><span lang="ro">Foc peste tot, fără să te încurce</span></h2>
+        <p class="lead" lang="en">Prăjeală runs a GPU fluid solver (vorticity, pressure, buoyancy) at a fraction of your screen's resolution and draws it as flames over every window.</p>
+        <p class="lead" lang="ro">Prăjeală rulează o simulare de fluid pe GPU (vorticitate, presiune, flotabilitate) la o fracțiune din rezoluția ecranului și o desenează ca flăcări peste toate ferestrele.</p>
+        <div class="grid">
+          <div class="feature">
+            <div class="emoji">☄️</div>
+            <h3><span lang="en">Your cursor is a torch</span><span lang="ro">Cursorul e o torță</span></h3>
+            <p lang="en">Halo, trail or a speed-scaled comet. Moving the mouse pushes the flames; every click explodes.</p>
+            <p lang="ro">Aură, dâră sau cometă proporțională cu viteza. Mouse-ul împinge flăcările; fiecare click explodează.</p>
+          </div>
+          <div class="feature">
+            <div class="emoji">🪟</div>
+            <h3><span lang="en">Your apps catch fire</span><span lang="ro">Aplicațiile iau foc</span></h3>
+            <p lang="en">Flames rise from the title bar of the focused window and lick its sides, following it as you move it.</p>
+            <p lang="ro">Flăcările ies din bara de titlu a ferestrei active și ling marginile, urmărind-o când o muți.</p>
+          </div>
+          <div class="feature">
+            <div class="emoji">🔥</div>
+            <h3><span lang="en">The screen burns</span><span lang="ro">Ecranul arde</span></h3>
+            <p lang="en">A wall of fire rising from the bottom edge, with sparks. Perfect for streams and late-night deadlines.</p>
+            <p lang="ro">Un zid de foc care urcă de la baza ecranului, cu scântei. Perfect pentru stream-uri și deadline-uri.</p>
+          </div>
+          <div class="feature">
+            <div class="emoji">🖱️</div>
+            <h3><span lang="en">100% click-through</span><span lang="ro">Click-urile trec prin foc</span></h3>
+            <p lang="en">The overlay never takes focus or input. Pause it any time with Ctrl/⌘ + Shift + F.</p>
+            <p lang="ro">Overlay-ul nu ia niciodată focusul sau click-urile. Pauză oricând cu Ctrl/⌘ + Shift + F.</p>
+          </div>
+          <div class="feature">
+            <div class="emoji">⚡</div>
+            <h3><span lang="en">Light on your laptop</span><span lang="ro">Ușor pentru laptop</span></h3>
+            <p lang="en">Quality and FPS presets, and the fire stops rendering entirely while paused.</p>
+            <p lang="ro">Presetări de calitate și FPS, iar în pauză focul nu mai consumă nimic.</p>
+          </div>
+          <div class="feature">
+            <div class="emoji">🔒</div>
+            <h3><span lang="en">Private by design</span><span lang="ro">Privat din construcție</span></h3>
+            <p lang="en">No account, no telemetry. The only network call is the one-time licence activation.</p>
+            <p lang="ro">Fără cont, fără telemetrie. Singura conexiune la internet e activarea licenței, o singură dată.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="palettes">
+      <div class="wrap">
+        <h2><span lang="en">Eight palettes</span><span lang="ro">Opt palete</span></h2>
+        <p class="lead" lang="en">Classic fire and Embers are free. Blue flame, Green fire, Plasma, Aurora, Molten gold and Ghost fire come with Pro.</p>
+        <p class="lead" lang="ro">Focul clasic și Jarul sunt gratuite. Flacăra albastră, Focul verde, Plasma, Aurora, Aurul topit și Focul fantomă vin cu Pro.</p>
+        <div class="shot" style="margin-top: 0"><img src="img/palettes.jpg" width="1488" height="636" alt="Six of the fire palettes side by side" /></div>
+      </div>
+    </section>
+
+    <section id="pro">
+      <div class="wrap">
+        <h2><span lang="en">Free forever. Pro if you love it.</span><span lang="ro">Gratuit pentru totdeauna. Pro dacă îți place.</span></h2>
+        <p class="lead" lang="en">Every install starts with a 7-day Pro trial. Afterwards the free version keeps working with no nags and no time limit.</p>
+        <p class="lead" lang="ro">Orice instalare începe cu 7 zile de Pro. După aceea, versiunea gratuită merge mai departe, fără reclame și fără limită de timp.</p>
+        <div class="pricing">
+          <div class="plan">
+            <h3><span lang="en">Free</span><span lang="ro">Gratuit</span></h3>
+            <div class="price">0 €</div>
+            <ul lang="en">
+              <li>Cursor fire: halo, trail, comet</li>
+              <li>Click explosions and sparks</li>
+              <li>Fire on the active window</li>
+              <li>Fire along the bottom of the screen</li>
+              <li>Classic fire and Embers palettes</li>
+              <li>Low, Medium and High intensity</li>
+              <li>Your main monitor</li>
+            </ul>
+            <ul lang="ro">
+              <li>Foc pe cursor: aură, dâră, cometă</li>
+              <li>Explozii la click și scântei</li>
+              <li>Foc pe fereastra activă</li>
+              <li>Foc la baza ecranului</li>
+              <li>Paletele Foc clasic și Jar</li>
+              <li>Intensitate Mică, Medie și Mare</li>
+              <li>Monitorul principal</li>
+            </ul>
+            <a class="btn" href="#download"><span lang="en">Download</span><span lang="ro">Descarcă</span></a>
+          </div>
+          <div class="plan pro">
+            <h3>Prăjeală Pro</h3>
+            <div class="price"><span data-price></span> <small lang="en">one-time</small><small lang="ro">o singură dată</small></div>
+            <ul lang="en">
+              <li>Everything in Free</li>
+              <li>All 8 palettes, including Aurora, Molten gold and Ghost fire</li>
+              <li>Inferno intensity</li>
+              <li>Fire on every monitor</li>
+              <li>Every future Pro feature</li>
+              <li>Up to 3 of your computers</li>
+            </ul>
+            <ul lang="ro">
+              <li>Tot ce e în varianta gratuită</li>
+              <li>Toate cele 8 palete, inclusiv Aurora, Aur topit și Foc fantomă</li>
+              <li>Intensitatea Inferno</li>
+              <li>Foc pe toate monitoarele</li>
+              <li>Toate funcțiile Pro viitoare</li>
+              <li>Pe până la 3 calculatoare ale tale</li>
+            </ul>
+            <a class="btn primary" data-buy href="#"><span lang="en">Buy Pro</span><span lang="ro">Cumpără Pro</span></a>
+            <p class="note" lang="en">Secure checkout by Lemon Squeezy (cards, PayPal, Apple Pay), VAT invoice included. Your licence key arrives by e-mail.</p>
+            <p class="note" lang="ro">Plată securizată prin Lemon Squeezy (card, PayPal, Apple Pay), cu factură și TVA incluse. Cheia de licență vine pe e-mail.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="activate">
+      <div class="wrap split">
+        <div>
+          <h2><span lang="en">Unlock in ten seconds</span><span lang="ro">Deblochezi în zece secunde</span></h2>
+          <ol class="steps" lang="en">
+            <li><span><b>Buy Pro</b> — the licence key arrives in your inbox right away.</span></li>
+            <li><span>Open <b>Settings…</b> from the flame icon in the tray.</span></li>
+            <li><span>Paste the key and press <b>Activate</b>. Done — on up to 3 computers.</span></li>
+          </ol>
+          <ol class="steps" lang="ro">
+            <li><span><b>Cumperi Pro</b> — cheia de licență ajunge imediat pe e-mail.</span></li>
+            <li><span>Deschizi <b>Setări…</b> din iconița cu flacără din tray.</span></li>
+            <li><span>Lipești cheia și apeși <b>Activează</b>. Gata — pe până la 3 calculatoare.</span></li>
+          </ol>
+        </div>
+        <div>
+          <img lang="en" src="img/settings-en.png" width="500" height="1010" alt="Prăjeală settings window with the Pro card" loading="lazy" />
+          <img lang="ro" src="img/settings-ro.png" width="500" height="1010" alt="Fereastra de setări Prăjeală cu cardul Pro" loading="lazy" />
+        </div>
+      </div>
+    </section>
+
+    <section id="download">
+      <div class="wrap">
+        <h2><span lang="en">Download</span><span lang="ro">Descarcă</span></h2>
+        <p class="lead" lang="en">Installers for Windows (NSIS), macOS (universal DMG) and Linux (AppImage, .deb) are on the releases page. Prefer source? It is all on GitHub.</p>
+        <p class="lead" lang="ro">Instalatoarele pentru Windows (NSIS), macOS (DMG universal) și Linux (AppImage, .deb) sunt pe pagina de release-uri. Preferi sursele? Totul e pe GitHub.</p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/FasTuber/prajeala/releases/latest"><span lang="en">Latest release</span><span lang="ro">Ultima versiune</span></a>
+          <a class="btn" href="https://github.com/FasTuber/prajeala">GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap">
+        <h2>FAQ</h2>
+        <div lang="en">
+          <details>
+            <summary>Will it slow down my computer?</summary>
+            <p>The simulation runs at a quarter of your screen resolution by default and is capped at 60 fps. On integrated graphics choose the Low quality preset or 30 fps. When paused, nothing is rendered.</p>
+          </details>
+          <details>
+            <summary>Can I still click things under the fire?</summary>
+            <p>Yes. The overlay is fully click-through and never takes keyboard focus.</p>
+          </details>
+          <details>
+            <summary>Is it a subscription?</summary>
+            <p>No. Pro is a single payment and includes future Pro features. The free version never expires.</p>
+          </details>
+          <details>
+            <summary>How many computers can I use Pro on?</summary>
+            <p>Up to three. You can move a licence by pressing “Deactivate on this computer” in the settings window, or from your order page.</p>
+          </details>
+          <details>
+            <summary>Refunds?</summary>
+            <p>If Prăjeală Pro does not work on your machine, write within 14 days and you get your money back.</p>
+          </details>
+          <details>
+            <summary>Does it phone home?</summary>
+            <p>Only to activate a store licence and to re-check it about once a week. No telemetry, no analytics. Being offline never removes Pro.</p>
+          </details>
+        </div>
+        <div lang="ro">
+          <details>
+            <summary>Îmi încetinește calculatorul?</summary>
+            <p>Simularea rulează implicit la un sfert din rezoluția ecranului și e limitată la 60 fps. Pe plăci video integrate alege calitatea Scăzută sau 30 fps. În pauză nu se randează nimic.</p>
+          </details>
+          <details>
+            <summary>Pot da click pe lucrurile de sub foc?</summary>
+            <p>Da. Overlay-ul lasă click-urile să treacă și nu ia niciodată focusul tastaturii.</p>
+          </details>
+          <details>
+            <summary>E abonament?</summary>
+            <p>Nu. Pro se plătește o singură dată și include funcțiile Pro viitoare. Versiunea gratuită nu expiră niciodată.</p>
+          </details>
+          <details>
+            <summary>Pe câte calculatoare pot folosi Pro?</summary>
+            <p>Pe până la trei. Muți licența cu „Dezactivează pe acest calculator” din fereastra de setări sau din pagina comenzii.</p>
+          </details>
+          <details>
+            <summary>Rambursări?</summary>
+            <p>Dacă Prăjeală Pro nu merge pe calculatorul tău, scrie-ne în 14 zile și îți dăm banii înapoi.</p>
+          </details>
+          <details>
+            <summary>Trimite date undeva?</summary>
+            <p>Doar la activarea unei licențe din magazin și la o verificare cam o dată pe săptămână. Fără telemetrie, fără analytics. Lipsa internetului nu îți ia niciodată Pro.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        <span>© 2026 Mihai Balan (FasTuber)</span>
+        <a href="https://github.com/FasTuber/prajeala">GitHub</a>
+        <a href="https://github.com/FasTuber/prajeala/issues"><span lang="en">Support</span><span lang="ro">Suport</span></a>
+        <span lang="en">Open source (MIT)</span><span lang="ro">Open source (MIT)</span>
+      </div>
+    </footer>
+
+    <script>
+      // ── Store configuration: keep in sync with src/shared/product.ts ──
+      const PRAJEALA = {
+        price: '5 €',
+        // Lemon Squeezy checkout link of “Prăjeală Pro” (Products → Share). Empty = “coming soon”.
+        buyUrl: '',
+      };
+
+      document.querySelectorAll('[data-price]').forEach((el) => (el.textContent = PRAJEALA.price));
+      document.querySelectorAll('[data-buy]').forEach((el) => {
+        if (PRAJEALA.buyUrl) {
+          el.href = PRAJEALA.buyUrl;
+        } else {
+          el.classList.add('disabled');
+          el.innerHTML = '<span lang="en">Coming soon</span><span lang="ro">În curând</span>';
+        }
+      });
+
+      const root = document.documentElement;
+      const button = document.getElementById('lang');
+      const setLang = (lang) => {
+        root.dataset.lang = lang;
+        root.lang = lang;
+        button.textContent = lang === 'ro' ? 'EN' : 'RO';
+        try {
+          localStorage.setItem('prajeala-lang', lang);
+        } catch {
+          /* private mode */
+        }
+      };
+      let saved = null;
+      try {
+        saved = localStorage.getItem('prajeala-lang');
+      } catch {
+        /* private mode */
+      }
+      setLang(saved || (/^ro\b/i.test(navigator.language || '') ? 'ro' : 'en'));
+      button.addEventListener('click', () => setLang(root.dataset.lang === 'ro' ? 'en' : 'ro'));
+    </script>
+  </body>
+</html>

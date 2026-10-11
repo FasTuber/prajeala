@@ -26,7 +26,10 @@ fereastra e click-through, deci lucrezi normal, doar că ecranul arde.
 - **Aplicația activă** ia foc: flăcările ies din marginea de sus a ferestrei focalizate și ling laturile.
 - **Ecranul** poate arde de la bază, pe fiecare monitor.
 
-> Capturi de ecran: _în curând_ (`docs/screenshots/`).
+<p align="center"><img src="site/img/hero.jpg" width="820" alt="O fereastră de editor în flăcări și cursorul transformat în torță"></p>
+
+**Gratuit, cu upgrade opțional [Prăjeală Pro](#prăjeală-pro)** (plată unică): toate cele 8 palete, intensitatea
+Inferno și foc pe toate monitoarele. Orice instalare începe cu 7 zile de Pro. Site: <https://fastuber.github.io/prajeala/>.
 
 ### Funcții
 
@@ -39,8 +42,9 @@ fereastra e click-through, deci lucrezi normal, doar că ecranul arde.
 | Aplicații | foc pe conturul ferestrei active (necesită `get-windows`) |
 | Ecran | foc care urcă de la baza fiecărui ecran |
 | Scântei | particule CPU emise de cursor și de explozii |
-| Palete | `classic`, `blue`, `green`, `plasma`, `ember` |
-| Intensități | `low`, `medium`, `high`, `inferno` |
+| Palete | `classic`, `ember` (gratuite); `blue`, `green`, `plasma`, `aurora`, `gold`, `ghost` (Pro) |
+| Intensități | `low`, `medium`, `high` (gratuite); `inferno` (Pro) |
+| Setări | fereastră de setări cu toate opțiunile, previzualizare a paletelor și activarea licenței (ro/en) |
 
 ### Instalare
 
@@ -62,17 +66,42 @@ oricum, doar cu funcțiile respective dezactivate:
 - `uiohook-napi` → click-uri globale (explozii la click);
 - `get-windows` → fereastra activă (foc pe aplicații).
 
-### Meniul din tray
+### Prăjeală Pro
+
+<p align="center"><img src="site/img/palettes.jpg" width="820" alt="Paletele de foc"></p>
+
+| | Gratuit | Pro |
+|---|---|---|
+| Cursor, explozii la click, scântei, foc pe fereastra activă și la baza ecranului | ✓ | ✓ |
+| Palete | Foc clasic, Jar | toate 8 |
+| Intensitate Inferno | — | ✓ |
+| Foc pe toate monitoarele | doar cel principal | ✓ |
+
+- Primele **7 zile** după instalare ai tot Pro, gratuit. Apoi aplicația revine la varianta gratuită, fără să-ți
+  piardă setările: alegerile Pro revin singure după activare.
+- Cumperi din fereastra **Setări…** (butonul „Cumpără Pro”), primești cheia pe e-mail și o lipești în același loc.
+  O cheie merge pe până la 3 calculatoare; „Dezactivează pe acest calculator” eliberează locul.
+- Activarea se face o singură dată online; verificarea periodică nu îți ia niciodată Pro doar pentru că ești offline.
+- Pentru autor: configurarea magazinului, cheile offline și lansarea sunt descrise în [`docs/MONETIZARE.md`](docs/MONETIZARE.md).
+
+### Fereastra de setări și meniul din tray
+
+**Setări…** din tray (sau pornirea aplicației a doua oară) deschide fereastra de setări: toate opțiunile de mai jos,
+paletele cu previzualizare și cardul Prăjeală Pro. La prima pornire fereastra se deschide singură, cu un scurt
+bun venit. Fereastra arde și ea, ca orice aplicație activă — e o previzualizare live a setărilor.
 
 Click pe icoana cu flacără din tray:
 
+- **starea Pro** (probă / Pro activ / „Ia Prăjeală Pro…”);
 - **Pauză / Reluare** — oprește randarea fără să închidă aplicația;
 - **Intensitate** — Low / Medium / High / Inferno;
-- **Paletă** — Classic / Blue / Green / Plasma / Ember;
+- **Paletă** — Classic / Embers / Blue / Green / Plasma / Aurora / Molten gold / Ghost (cele marcate „— Pro” deschid cardul Pro);
 - **Cursor** — Off / Halo / Trail / Comet;
 - comutatoare: **Explozii la click**, **Foc pe fereastra activă**, **Foc la baza ecranului**, **Scântei**;
 - **FPS maxim**, **Pornire la login**, **HUD de debug**;
-- **Test explozie**, **Ieșire**.
+- **Test explozie**, **Setări…**, **Deschide fișierul de setări**, **Ieșire**.
+
+Meniul și fereastra sunt în română când sistemul e în română, altfel în engleză.
 
 ### Scurtături globale
 
@@ -103,6 +132,8 @@ electron . [opțiuni]        # sau: npm start -- [opțiuni]
 | `--cursor-hz=N` | frecvența de citire a poziției cursorului (implicit ~120) |
 | `--window-hz=N` | frecvența de interogare a ferestrei active |
 | `--no-sandbox` | necesar când rulezi Electron ca root (Linux) |
+| `--settings` | deschide fereastra de setări la pornire |
+| `--force-tier=free\|pro` | doar în dezvoltare (build nepachetat): `free` sare peste perioada de probă, `pro` deblochează tot |
 
 ### Fișierul de setări
 
@@ -118,6 +149,8 @@ Setările se salvează ca JSON în `prajeala-settings.json`, în directorul `use
 Fișierul e validat la citire (`normalizeSettings` din `src/shared/settings.ts`): valorile invalide cad pe
 implicit, numerele sunt limitate la intervalele permise (`simScale` 0.1–1, `maxFps` 15–240,
 `pressureIterations` 0–64). Poți șterge fișierul oricând ca să revii la setările implicite.
+
+Lângă el stă `prajeala-license.json` (data primei porniri și licența activă, fără alte date personale).
 
 ### Cum funcționează
 
@@ -160,6 +193,7 @@ npm run lint         # eslint .
 npm test             # vitest (module pure din src/shared)
 npm run smoke        # build + pornire în --smoke (sub Xvfb dacă nu există DISPLAY) → smoke-report.json
 npm run icons        # regenerează assets/** (icoane desenate procedural, fără dependențe)
+npm run license -- keygen | issue --to "Nume" | verify <cheie>   # chei de licență offline (vezi docs/MONETIZARE.md)
 npm run pack         # build + director neîmpachetat în release/
 npm run dist         # build + instalatoare (NSIS / DMG+zip / AppImage+deb) în release/
 ```
@@ -170,18 +204,22 @@ deschisă) și trece orice altă opțiune mai departe către aplicație; `ELECTR
 Structura proiectului:
 
 ```
-src/main/       procesul principal: overlay-uri, tracker cursor/fereastră, tray, scurtături, setări, --smoke
-src/preload/    puntea contextBridge (window.prajeala)
-src/renderer/   simularea WebGL2, emițătorii, scânteile, HUD-ul de debug
-src/shared/     contractul comun: settings.ts, ipc.ts, palettes.ts (pure, testate cu Vitest)
-scripts/        build.mjs (esbuild), smoke.mjs, gen-icons.mjs
+src/main/       procesul principal: overlay-uri, tracker cursor/fereastră, tray, scurtături, setări,
+                fereastra de setări, licențe (license/), --smoke
+src/preload/    punțile contextBridge: window.prajeala (overlay) și window.prajealaUi (setări)
+src/renderer/   simularea WebGL2, emițătorii, scânteile, HUD-ul de debug; settings/ = fereastra de setări
+src/shared/     contractul comun: settings, ipc, palettes, pro (gratuit/Pro), license, product, i18n (pure, testate)
+scripts/        build.mjs (esbuild), smoke.mjs, gen-icons.mjs, license.mjs (chei offline)
 tests/          teste unitare
 assets/         icoane generate (app + tray)
-docs/           PLAN.md
+site/           pagina de prezentare (GitHub Pages) + imagini
+docs/           PLAN.md, MONETIZARE.md
 ```
 
-CI (`.github/workflows/ci.yml`) rulează typecheck, lint, teste, build și smoke-test-ul sub Xvfb la fiecare
-push; pe tag-uri `v*` (sau manual) construiește instalatoarele pentru Windows, macOS și Linux.
+CI (`.github/workflows/ci.yml`) rulează typecheck, lint, teste, build și smoke-test-ul sub Xvfb (overlay +
+fereastra de setări) la fiecare push; pe tag-uri `v*` (sau manual) construiește instalatoarele pentru Windows,
+macOS și Linux, iar pe tag-uri le adună într-un release ciornă pe GitHub. `.github/workflows/pages.yml` publică
+`site/` pe GitHub Pages.
 
 ### Licență
 
@@ -199,7 +237,8 @@ keep working underneath:
 - the **focused application window** catches fire along its frame;
 - the **screen** can burn from the bottom edge, on every monitor.
 
-> Screenshots: _coming soon_ (`docs/screenshots/`).
+It is **free**, with an optional one-time **Prăjeală Pro** upgrade (all 8 palettes, Inferno intensity, fire on
+every monitor). Every install starts with a 7-day Pro trial. Website: <https://fastuber.github.io/prajeala/>.
 
 ### Features
 
@@ -209,7 +248,9 @@ keep working underneath:
 - Cursor modes `off` / `halo` / `trail` / `comet`; cursor movement pushes the fluid.
 - Click bursts (needs `uiohook-napi`), fire on the active window frame (needs `get-windows`),
   screen-bottom fire, CPU spark particles.
-- Palettes `classic`, `blue`, `green`, `plasma`, `ember`; intensities `low`, `medium`, `high`, `inferno`.
+- Palettes `classic`, `ember` (free) and `blue`, `green`, `plasma`, `aurora`, `gold`, `ghost` (Pro);
+  intensities `low`, `medium`, `high` (free) and `inferno` (Pro).
+- A settings window with every option, palette previews and licence activation (English / Romanian).
 
 ### Install
 
@@ -225,10 +266,28 @@ npm start
 The app lives in the **system tray** only. Both native modules are **optional** dependencies: if they fail to
 install, the app still runs with click bursts / active-window fire disabled.
 
-### Tray menu
+### Prăjeală Pro
 
-Pause/Resume · Intensity (Low/Medium/High/Inferno) · Palette · Cursor mode · toggles for click bursts,
-active-window fire, screen-bottom fire and sparks · max FPS · launch at login · debug HUD · test burst · Quit.
+| | Free | Pro |
+|---|---|---|
+| Cursor fire, click bursts, sparks, active-window and screen-bottom fire | ✓ | ✓ |
+| Palettes | Classic fire, Embers | all 8 |
+| Inferno intensity | — | ✓ |
+| Fire on every monitor | primary only | ✓ |
+
+Pro is a one-time purchase from the settings window (“Buy Pro”); paste the e-mailed licence key in the same
+place. A key works on up to 3 computers. Activation happens once online; the weekly background check never
+removes Pro just because you are offline. Store setup, offline keys and release steps for the author:
+[`docs/MONETIZARE.md`](docs/MONETIZARE.md) (Romanian).
+
+### Settings window and tray menu
+
+**Settings…** in the tray (or launching the app a second time) opens the settings window: every option, palette
+previews and the Prăjeală Pro card. It opens by itself with a short welcome on the first launch.
+
+Tray: Pro status · Pause/Resume · Intensity · Palette · Cursor mode · toggles for click bursts, active-window
+fire, screen-bottom fire and sparks · max FPS · quality · launch at login · debug HUD · test burst · Settings… ·
+Quit. Pro-only entries are marked “— Pro” and open the Pro card.
 
 ### Global shortcuts
 
@@ -253,6 +312,8 @@ active-window fire, screen-bottom fire and sparks · max FPS · launch at login 
 | `--cursor-hz=N` | cursor polling rate (default ~120) |
 | `--window-hz=N` | active-window polling rate |
 | `--no-sandbox` | required when running Electron as root on Linux |
+| `--settings` | open the settings window on start |
+| `--force-tier=free\|pro` | development builds only: `free` skips the trial, `pro` unlocks everything |
 
 ### Settings file
 
@@ -260,7 +321,8 @@ active-window fire, screen-bottom fire and sparks · max FPS · launch at login 
 `Prajeala` for packaged builds): `%APPDATA%\prajeala\` on Windows, `~/Library/Application Support/prajeala/`
 on macOS, `~/.config/prajeala/` on Linux. The file is validated on load (`src/shared/settings.ts`): invalid
 values fall back to defaults and numbers are clamped (`simScale` 0.1–1, `maxFps` 15–240,
-`pressureIterations` 0–64). Delete it to reset.
+`pressureIterations` 0–64). Delete it to reset. `prajeala-license.json` next to it holds the first-run date and
+the active licence.
 
 ### How it works
 
@@ -286,9 +348,10 @@ to RGBA8 textures.
 
 ### Development
 
-`npm run build` / `build:watch` / `dev` / `typecheck` / `lint` / `test` / `smoke` / `icons` / `pack` / `dist` —
+`npm run build` / `build:watch` / `dev` / `typecheck` / `lint` / `test` / `smoke` / `icons` / `license` / `pack` / `dist` —
 see the Romanian section above for what each does, and the project layout there. CI runs typecheck, lint,
-tests, build and the Xvfb smoke test on every push, and builds installers on `v*` tags or manual dispatch.
+tests, build and the Xvfb smoke test (overlay + settings window) on every push, builds installers on `v*` tags or
+manual dispatch and collects them into a draft GitHub release on tags; `pages.yml` deploys `site/` to GitHub Pages.
 
 ### License
 
