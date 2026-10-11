@@ -17,6 +17,7 @@ import {
   type RendererStats,
   type Unsubscribe,
 } from '../shared/ipc';
+import type { LicenseActionResult, LicenseInfo } from '../shared/license';
 import type { Settings } from '../shared/settings';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
@@ -37,6 +38,14 @@ const api: PrajealaApi = {
   getDisplay: () => ipcRenderer.invoke(IPC.getDisplay) as Promise<DisplayInfo>,
   getCapabilities: () => ipcRenderer.invoke(IPC.getCapabilities) as Promise<HostCapabilities>,
   updateSettings: (patch: Partial<Settings>) => ipcRenderer.invoke(IPC.updateSettings, patch) as Promise<Settings>,
+
+  getLicense: () => ipcRenderer.invoke(IPC.getLicense) as Promise<LicenseInfo>,
+  activateLicense: (key: string) => ipcRenderer.invoke(IPC.activateLicense, String(key)) as Promise<LicenseActionResult>,
+  deactivateLicense: () => ipcRenderer.invoke(IPC.deactivateLicense) as Promise<LicenseActionResult>,
+  checkLicenseOnline: () => ipcRenderer.invoke(IPC.checkLicense) as Promise<LicenseActionResult>,
+  openBuyPage: () => ipcRenderer.invoke(IPC.openBuyPage) as Promise<void>,
+  closeLicenseWindow: () => ipcRenderer.invoke(IPC.closeLicenseWindow) as Promise<void>,
+  onLicense: (cb) => subscribe<LicenseInfo>(IPC.license, cb),
 
   onCursor: (cb) => subscribe<CursorEvent>(IPC.cursor, cb),
   onPointerButton: (cb) => subscribe<PointerButtonEvent>(IPC.pointerButton, cb),

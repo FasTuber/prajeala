@@ -5,6 +5,7 @@
 import { Menu, Tray, nativeImage, type MenuItemConstructorOptions, type NativeImage } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
 import type { HostCapabilities } from '../shared/ipc';
+import { applyTierLimits, isIntensityAllowed, isPaletteAllowed, limitsFor, type LicenseInfo } from '../shared/license';
 import { PALETTE_DEFINITIONS } from '../shared/palettes';
 import { CURSOR_MODES, INTENSITIES, PALETTES, type Settings } from '../shared/settings';
 import { createLogger } from './log';
@@ -13,6 +14,7 @@ import { trayAssetPath } from './paths';
 const log = createLogger('tray');
 
 export const TRAY_TOOLTIP = 'Prăjeală — foc pe ecran';
+const PRO_SUFFIX = '  (Pro)';
 
 /** 16×16 flame PNG used when assets/tray/* are missing (keeps the app usable from a bare checkout). */
 const FALLBACK_ICON_DATA_URL =
@@ -44,8 +46,13 @@ export interface TrayActions {
   getSettings(): Settings;
   updateSettings(patch: Partial<Settings>): void;
   getCapabilities(): HostCapabilities;
+  getLicense(): LicenseInfo;
   testBurst(): void;
   openSettingsFile(): void;
+  openLicenseWindow(): void;
+  activateLicenseFromClipboard(): void;
+  checkLicenseOnline(): void;
+  openBuyPage(): void;
   quit(): void;
 }
 
@@ -98,9 +105,14 @@ export class TrayController {
   }
 
   buildTemplate(): MenuItemConstructorOptions[] {
-    const s = this.actions.getSettings();
+    const stored = this.actions.getSettings();
     const caps = this.actions.getCapabilities();
+    const license = this.actions.getLicense();
+    const tier = license.tier;
+    // Radios reflect what the renderer actually runs (stored values above the tier's limits are clamped).
+    const s = applyTierLimits(stored, tier);
     const set = (patch: Partial<Settings>) => () => this.actions.updateSettings(patch);
+    const lock = (label: string, locked: boolean): string => (locked ? `${label}${PRO_SUFFIX}` : label);
     // Shortcut hints only: the real bindings live in shortcuts.ts. GTK asserts when a
     // tray item carries an accelerator, so the hint goes into the label on Linux.
     const hint = (label: string, accelerator: string): Pick<MenuItemConstructorOptions, 'label' | 'accelerator' | 'registerAccelerator'> =>
@@ -108,19 +120,28 @@ export class TrayController {
         ? { label: `${label}  (${accelerator.replace('CommandOrControl', 'Ctrl')})` }
         : { label, accelerator, registerAccelerator: false };
 
-    const intensity: MenuItemConstructorOptions[] = INTENSITIES.map((value) => ({
-      label: INTENSITY_LABELS[value],
-      type: 'radio',
-      checked: s.intensity === value,
-      click: set({ intensity: value }),
-    }));
+    const intensity: MenuItemConstructorOptions[] = INTENSITIES.map((value) => {
+      const allowed = isIntensityAllowed(tier, value);
+      return {
+        label: lock(INTENSITY_LABELS[value], !allowed),
+        type: 'radio',
+        checked: s.intensity === value,
+        enabled: allowed,
+        click: set({ intensity: value }),
+      };
+    });
 
-    const palette: MenuItemConstructorOptions[] = PALETTES.map((value) => ({
-      label: PALETTE_DEFINITIONS[value].label,
-      type: 'radio',
-      checked: s.palette === value,
-      click: set({ palette: value }),
-    }));
+    const palette: MenuItemConstructorOptions[] = PALETTES.map((value) => {
+      const allowed = isPaletteAllowed(tier, value);
+      return {
+        label: lock(PALETTE_DEFINITIONS[value].label, !allowed),
+        type: 'radio',
+        checked: s.palette === value,
+        enabled: allowed,
+        click: set({ palette: value }),
+      };
+    });
+    const windowAllowed = limitsFor(tier).burnActiveWindow;
 
     const cursor: MenuItemConstructorOptions[] = CURSOR_MODES.map((value) => ({
       label: CURSOR_LABELS[value],
@@ -162,10 +183,10 @@ export class TrayController {
         click: () => this.actions.updateSettings({ clickBursts: !this.actions.getSettings().clickBursts }),
       },
       {
-        label: caps.activeWindow ? 'Burn active window' : 'Burn active window (needs get-windows)',
+        label: lock(caps.activeWindow ? 'Burn active window' : 'Burn active window (needs get-windows)', !windowAllowed),
         type: 'checkbox',
         checked: s.burnActiveWindow,
-        enabled: caps.activeWindow,
+        enabled: caps.activeWindow && windowAllowed,
         click: () => this.actions.updateSettings({ burnActiveWindow: !this.actions.getSettings().burnActiveWindow }),
       },
       {
@@ -196,11 +217,62 @@ export class TrayController {
         click: () => this.actions.updateSettings({ launchAtLogin: !this.actions.getSettings().launchAtLogin }),
       },
       { type: 'separator' },
+      { label: licenseLabel(license), submenu: this.buildLicenseSubmenu(license, s) },
+      { type: 'separator' },
       { ...hint('Test burst', 'CommandOrControl+Shift+B'), click: () => this.actions.testBurst() },
       { label: 'Open settings file', click: () => this.actions.openSettingsFile() },
       { type: 'separator' },
       { ...hint('Quit Prăjeală', 'CommandOrControl+Shift+Q'), click: () => this.actions.quit() },
     ];
+  }
+
+  private buildLicenseSubmenu(license: LicenseInfo, s: Settings): MenuItemConstructorOptions[] {
+    const hasKey = license.kind !== 'none';
+    const canCheck = hasKey && !license.busy && license.canCheckOnline;
+    const items: MenuItemConstructorOptions[] = [
+      { label: license.message, enabled: false },
+    ];
+    if (license.name || license.email) items.push({ label: [license.name, license.email].filter(Boolean).join(' · '), enabled: false });
+    if (license.lastOnlineCheckAt) {
+      items.push({
+        label: `Last online check: ${license.lastOnlineCheckAt.slice(0, 10)} (${license.lastOnlineResult ?? 'n/a'})`,
+        enabled: false,
+      });
+    }
+    items.push(
+      { type: 'separator' },
+      { label: hasKey ? 'Manage licence…' : 'Enter licence key…', click: () => this.actions.openLicenseWindow() },
+      { label: 'Activate key from clipboard', enabled: !license.busy, click: () => this.actions.activateLicenseFromClipboard() },
+      { label: 'Check licence online now', enabled: canCheck, click: () => this.actions.checkLicenseOnline() },
+      {
+        label: 'Re-verify online periodically',
+        type: 'checkbox',
+        checked: s.licenseOnlineCheck,
+        click: () => this.actions.updateSettings({ licenseOnlineCheck: !this.actions.getSettings().licenseOnlineCheck }),
+      },
+    );
+    if (license.tier !== 'pro') {
+      items.push({ type: 'separator' }, { label: 'Buy Prăjeală Pro…', click: () => this.actions.openBuyPage() });
+    }
+    return items;
+  }
+}
+
+export function licenseLabel(license: LicenseInfo): string {
+  if (license.tier === 'pro') return `Licence: Pro${license.busy ? ' (checking…)' : ''}`;
+  switch (license.status) {
+    case 'none':
+      return 'Licence: Free';
+    case 'unverified':
+      return 'Licence: Free (key needs online verification)';
+    case 'expired':
+      return 'Licence: Free (key expired)';
+    case 'revoked':
+      return 'Licence: Free (key revoked)';
+    case 'unsupported':
+      return 'Licence: Free (signed keys unsupported)';
+    default:
+      return 'Licence: Free (invalid key)';
   }
 }
 

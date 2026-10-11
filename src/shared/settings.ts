@@ -37,6 +37,11 @@ export interface Settings {
   launchAtLogin: boolean;
   /** Small on-screen diagnostics panel (fps, sim size, emitters). */
   showDebugHud: boolean;
+  /**
+   * Re-validate the licence key against Lemon Squeezy from time to time
+   * (refunds / revocations). Off = no network traffic except explicit actions.
+   */
+  licenseOnlineCheck: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -53,6 +58,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   pressureIterations: 12,
   launchAtLogin: false,
   showDebugHud: false,
+  licenseOnlineCheck: true,
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
@@ -178,6 +184,7 @@ export function normalizeSettings(input: unknown): Settings {
     ),
     launchAtLogin: pickBool(src.launchAtLogin, d.launchAtLogin),
     showDebugHud: pickBool(src.showDebugHud, d.showDebugHud),
+    licenseOnlineCheck: pickBool(src.licenseOnlineCheck, d.licenseOnlineCheck),
   };
 }
 

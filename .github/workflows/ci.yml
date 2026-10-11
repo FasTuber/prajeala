@@ -80,6 +80,11 @@ jobs:
     env:
       # Unsigned builds: do not look for a signing identity on macOS.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # Licensing (see README › Pro). Missing secrets/vars → the build warns and only raw Lemon Squeezy keys work.
+      PRAJEALA_LICENSE_PUBLIC_KEY: ${{ secrets.PRAJEALA_LICENSE_PUBLIC_KEY }}
+      PRAJEALA_LS_STORE_ID: ${{ vars.PRAJEALA_LS_STORE_ID }}
+      PRAJEALA_LS_PRODUCT_ID: ${{ vars.PRAJEALA_LS_PRODUCT_ID }}
+      PRAJEALA_BUY_URL: ${{ vars.PRAJEALA_BUY_URL }}
     steps:
       - uses: actions/checkout@v5
 

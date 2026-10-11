@@ -13,6 +13,7 @@ import type {
   RendererReadyReport,
   Unsubscribe,
 } from '../../shared/ipc';
+import type { LicenseInfo } from '../../shared/license';
 import { PALETTE_DEFINITIONS } from '../../shared/palettes';
 import {
   DEFAULT_SETTINGS,
@@ -61,6 +62,8 @@ export class App {
   private preset: IntensityPreset = INTENSITY_PRESETS[DEFAULT_SETTINGS.intensity];
   private display: DisplayInfo | null = null;
   private caps: HostCapabilities | null = null;
+  /** Read-only here (the main process already clamps the settings it sends); shown in the HUD. */
+  private license: LicenseInfo | null = null;
   private gpu: GpuScene | null = null;
 
   private readonly queue = new SplatQueue();
@@ -158,6 +161,13 @@ export class App {
     } catch (err) {
       this.log('error', `listener setup failed: ${describe(err)}`);
     }
+    // Licence is informational for the overlay; never block start-up on it.
+    void Promise.resolve()
+      .then(() => this.api.getLicense())
+      .then((info) => {
+        this.license = info;
+      })
+      .catch(() => undefined);
 
     this.reportReady(error);
     this.running = true;
@@ -334,6 +344,9 @@ export class App {
       api.onDisplay((d) => this.handleDisplay(d)),
       api.onCapabilities((c) => this.handleCapabilities(c)),
       api.onTestBurst((p) => this.handleTestBurst(p)),
+      api.onLicense((info) => {
+        this.license = info;
+      }),
     );
   }
 
@@ -615,7 +628,7 @@ export class App {
       `prăjeală ${state} · ${this.fps} fps (cap ${s.maxFps}) · frames ${this.frames}${this.env.mock ? ' · mock' : ''}`,
       `sim ${g?.sim.width ?? 0}×${g?.sim.height ?? 0} (scale ${s.simScale}, ${s.pressureIterations} it) · canvas ${this.canvas.width}×${this.canvas.height} @${this.dpr.toFixed(2)}x`,
       `gpu ${caps?.renderer ?? 'n/a'} · float ${caps?.floatTextures ? 'yes' : 'no'} · linear ${caps?.linearFiltering ? 'yes' : 'no'}`,
-      `intensity ${s.intensity} · palette ${s.palette} · emitters ${active.join(' ') || 'none'}`,
+      `intensity ${s.intensity} · palette ${s.palette} · tier ${this.license?.tier ?? '?'} · emitters ${active.join(' ') || 'none'}`,
       `sparks ${this.sparks.count}/${this.sparks.budget} · queue drops ${this.queue.dropped}`,
       `cursor ${c.hasPosition ? `${c.x.toFixed(0)},${c.y.toFixed(0)} ${c.inside ? 'in' : 'out'} ${c.speed.toFixed(0)} px/s` : 'n/a'}`,
       `display ${this.display ? `#${this.display.index + 1}/${this.display.total} ${this.display.bounds.width}×${this.display.bounds.height} sf ${this.display.scaleFactor}` : 'n/a'} · caps ${this.caps ? `${this.caps.platform} clicks:${this.caps.globalClicks ? 'y' : 'n'} window:${this.caps.activeWindow ? 'y' : 'n'}${this.caps.smoke ? ' smoke' : ''}` : 'n/a'}`,

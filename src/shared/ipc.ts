@@ -9,6 +9,7 @@
  * i.e. `local = global - display.bounds.{x,y}`. Global screen coordinates are
  * included for debugging and for cross-display effects.
  */
+import type { LicenseActionResult, LicenseInfo } from './license';
 import type { Settings } from './settings';
 
 export interface Rect {
@@ -114,6 +115,8 @@ export const IPC = {
   capabilities: 'prajeala:capabilities',
   /** Ask the renderer to emit a one-off burst at local coordinates (used by tray "test" and smoke). */
   testBurst: 'prajeala:test-burst',
+  /** Licence snapshot (tier, status); sent to overlays and the licence window. */
+  license: 'prajeala:license',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
@@ -125,6 +128,12 @@ export const IPC = {
   getDisplay: 'prajeala:get-display',
   getCapabilities: 'prajeala:get-capabilities',
   updateSettings: 'prajeala:update-settings',
+  getLicense: 'prajeala:get-license',
+  activateLicense: 'prajeala:activate-license',
+  deactivateLicense: 'prajeala:deactivate-license',
+  checkLicense: 'prajeala:check-license',
+  openBuyPage: 'prajeala:open-buy-page',
+  closeLicenseWindow: 'prajeala:close-license-window',
 } as const;
 
 export type Unsubscribe = () => void;
@@ -135,6 +144,19 @@ export interface PrajealaApi {
   getDisplay(): Promise<DisplayInfo>;
   getCapabilities(): Promise<HostCapabilities>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
+
+  // Licence (Free / Pro). Overlays only read; the licence window drives the actions.
+  getLicense(): Promise<LicenseInfo>;
+  /** Verifies (offline) / activates (Lemon Squeezy, online) a pasted key and stores it. */
+  activateLicense(key: string): Promise<LicenseActionResult>;
+  /** Forgets the stored key (and releases the Lemon Squeezy instance when online). */
+  deactivateLicense(): Promise<LicenseActionResult>;
+  /** Explicit online re-validation against Lemon Squeezy. */
+  checkLicenseOnline(): Promise<LicenseActionResult>;
+  openBuyPage(): Promise<void>;
+  /** Closes the licence window (no-op elsewhere). */
+  closeLicenseWindow(): Promise<void>;
+  onLicense(cb: (info: LicenseInfo) => void): Unsubscribe;
 
   onCursor(cb: (e: CursorEvent) => void): Unsubscribe;
   onPointerButton(cb: (e: PointerButtonEvent) => void): Unsubscribe;

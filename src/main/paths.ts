@@ -16,6 +16,9 @@ export const preloadPath: string = fileURLToPath(new URL('../preload/index.cjs',
 /** Overlay page copied by scripts/build.mjs. */
 export const rendererHtmlPath: string = fileURLToPath(new URL('../renderer/index.html', import.meta.url));
 
+/** Licence window page copied by scripts/build.mjs. */
+export const licenseHtmlPath: string = fileURLToPath(new URL('../renderer/license.html', import.meta.url));
+
 /** `<app>/assets` (works both unpacked and inside app.asar). */
 export function assetsDir(): string {
   return path.join(app.getAppPath(), 'assets');
@@ -27,4 +30,8 @@ export function trayAssetPath(fileName: string): string {
 
 export function settingsFilePath(): string {
   return path.join(app.getPath('userData'), 'prajeala-settings.json');
+}
+
+export function licenseFilePath(): string {
+  return path.join(app.getPath('userData'), 'prajeala-license.json');
 }

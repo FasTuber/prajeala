@@ -77,6 +77,7 @@ describe('normalizeSettings', () => {
       pressureIterations: 20,
       launchAtLogin: true,
       showDebugHud: true,
+      licenseOnlineCheck: false,
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
@@ -90,6 +91,7 @@ describe('normalizeSettings', () => {
       'sparks',
       'launchAtLogin',
       'showDebugHud',
+      'licenseOnlineCheck',
     ] as const;
 
     it.each(boolKeys)('%s accepts true/false and falls back to the default otherwise', (key) => {

@@ -17,6 +17,7 @@ import type {
   RendererStats,
   Unsubscribe,
 } from '../../shared/ipc';
+import { FREE_LICENSE_INFO, applyTierLimits, parseLicenseKey, type LicenseActionResult, type LicenseInfo } from '../../shared/license';
 import { CURSOR_MODES, INTENSITIES, PALETTES, mergeSettings, normalizeSettings, type Settings } from '../../shared/settings';
 import type { RendererOptions } from '../app/options';
 import { SyntheticCursor } from './SyntheticCursor';
@@ -46,6 +47,25 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   const displaySignal = new Signal<DisplayInfo>();
   const capsSignal = new Signal<HostCapabilities>();
   const testBurst = new Signal<{ x: number; y: number; strength: number }>();
+  const licenseSignal = new Signal<LicenseInfo>();
+  // The standalone demo shows everything: it behaves like a perpetual Pro licence.
+  let license: LicenseInfo = {
+    ...FREE_LICENSE_INFO,
+    tier: options.freeTier ? 'free' : 'pro',
+    status: options.freeTier ? 'none' : 'active',
+    kind: options.freeTier ? 'none' : 'signed',
+    maskedKey: options.freeTier ? '' : 'PRAJ1…demo',
+    message: options.freeTier ? 'Free — demo without a licence.' : 'Pro — demo licence (mock).',
+    signedKeysSupported: true,
+    buyUrl: 'https://github.com/FasTuber/prajeala#pro',
+  };
+  /** Like the main process: the renderer only ever sees settings clamped to the tier. */
+  const effective = (): Settings => applyTierLimits(settings, license.tier);
+  const setLicense = (next: LicenseInfo): void => {
+    license = next;
+    licenseSignal.emit(license);
+    settingsSignal.emit(effective());
+  };
   const start = performance.now();
   const synthetic = new SyntheticCursor(0.5);
   const point = { x: 0, y: 0 };
@@ -92,7 +112,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
 
   const setSettings = (patch: Partial<Settings>): void => {
     settings = mergeSettings(settings, patch);
-    settingsSignal.emit(settings);
+    settingsSignal.emit(effective());
   };
   window.addEventListener('keydown', (e) => {
     switch (e.key) {
@@ -165,13 +185,41 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   setInterval(tickSynthetic, 1000 / 90);
 
   return {
-    getSettings: () => Promise.resolve(settings),
+    getSettings: () => Promise.resolve(effective()),
     getDisplay: () => Promise.resolve(display()),
     getCapabilities: () => Promise.resolve(caps()),
     updateSettings: (patch) => {
       setSettings(patch);
       return Promise.resolve(settings);
     },
+    getLicense: () => Promise.resolve(license),
+    activateLicense: (key): Promise<LicenseActionResult> => {
+      const parsed = parseLicenseKey(key);
+      if (!parsed) return Promise.resolve({ ok: false, error: 'That does not look like a licence key.', info: license });
+      setLicense({
+        ...license,
+        tier: 'pro',
+        status: 'active',
+        kind: parsed.kind,
+        maskedKey: parsed.kind === 'signed' ? 'PRAJ1…mock' : `${parsed.key.slice(0, 8)}…${parsed.key.slice(-4)}`,
+        activatedAt: new Date().toISOString(),
+        canCheckOnline: parsed.kind === 'lemonsqueezy' || !!parsed.payload.key,
+        message: 'Pro — accepted by the mock (no real verification in the browser).',
+      });
+      return Promise.resolve({ ok: true, info: license });
+    },
+    deactivateLicense: () => {
+      setLicense({ ...FREE_LICENSE_INFO, signedKeysSupported: true, buyUrl: license.buyUrl });
+      return Promise.resolve({ ok: true, info: license });
+    },
+    checkLicenseOnline: () =>
+      Promise.resolve({ ok: license.tier === 'pro', error: license.tier === 'pro' ? undefined : 'no key', info: license }),
+    openBuyPage: () => {
+      window.open(license.buyUrl, '_blank', 'noopener');
+      return Promise.resolve();
+    },
+    closeLicenseWindow: () => Promise.resolve(),
+    onLicense: (cb) => licenseSignal.on(cb),
     onCursor: (cb) => {
       const off = cursor.on(cb);
       // Deliver an initial position right away so warm-up frames have a cursor.

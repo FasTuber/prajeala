@@ -22,3 +22,6 @@ Thumbs.db
 
 # smoke test artifacts
 smoke-report.json
+
+# licence signing keys (npm run license:keygen) — never commit the private key
+license/
