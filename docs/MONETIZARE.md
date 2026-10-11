@@ -70,7 +70,8 @@ npm run license -- verify PRJ1-…                  # verifică o cheie
 ### 2.3 Site-ul (GitHub Pages)
 
 1. Repository → **Settings → Pages → Source: GitHub Actions**.
-2. La primul push pe `main` care atinge `site/`, workflow-ul *Website* publică pagina la
+2. La primul push pe branch-ul principal (default) care atinge `site/` — sau manual, din *Actions → Website →
+   Run workflow* — workflow-ul *Website* publică pagina la
    <https://fastuber.github.io/prajeala/>.
 3. Imaginile din `site/img/` sunt randări reale ale aplicației (vezi *Imagini* mai jos).
 
