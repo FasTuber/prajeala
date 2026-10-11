@@ -19,11 +19,15 @@ export interface RenderLook {
   glow: number;
   /** Smoke opacity. */
   smoke: number;
+  /** Smoke tint (0..1). */
+  smokeColor: readonly [number, number, number];
+  /** Detail-noise scroll speed multiplier (negative scrolls downward). */
+  noiseSpeed: number;
   /** Debug view: 0 normal, 1 heat, 2 smoke, 3 glow. */
   view: number;
 }
 
-export const DEFAULT_LOOK: RenderLook = { detail: 0.9, glow: 0.3, smoke: 0.14, view: 0 };
+export const DEFAULT_LOOK: RenderLook = { detail: 0.9, glow: 0.3, smoke: 0.14, smokeColor: [0.07, 0.06, 0.06], noiseSpeed: 1, view: 0 };
 
 export class FireRenderer {
   private readonly composite: Program;
@@ -127,6 +131,8 @@ export class FireRenderer {
     this.composite.uniform1f('uDetail', look.detail);
     this.composite.uniform1f('uGlow_', look.glow);
     this.composite.uniform1f('uSmoke', look.smoke);
+    this.composite.uniform3f('uSmokeColor', look.smokeColor[0], look.smokeColor[1], look.smokeColor[2]);
+    this.composite.uniform1f('uNoiseSpeed', look.noiseSpeed);
     this.composite.uniform1i('uView', look.view | 0);
     this.composite.texture('uTemperature', temperature, 0);
     this.composite.texture('uGlow', this.glowA.texture, 1);

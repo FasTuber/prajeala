@@ -8,12 +8,13 @@ import type {
   CursorEvent,
   DisplayInfo,
   HostCapabilities,
+  KeyEvent,
   PointerButtonEvent,
   PrajealaApi,
   RendererReadyReport,
   Unsubscribe,
 } from '../../shared/ipc';
-import { PALETTE_DEFINITIONS } from '../../shared/palettes';
+import type { LicenseInfo } from '../../shared/license';
 import {
   DEFAULT_SETTINGS,
   INTENSITY_PRESETS,
@@ -21,10 +22,13 @@ import {
   type IntensityPreset,
   type Settings,
 } from '../../shared/settings';
+import { BUILTIN_THEMES, themePalette, themesEqual, type ThemeDefinition } from '../../shared/theme';
+import { AudioReactor } from '../audio/AudioReactor';
 import { FireCursor } from '../cursor/FireCursor';
 import { BurstEmitter } from '../emitters/BurstEmitter';
 import { CursorEmitter } from '../emitters/CursorEmitter';
 import { EmitterContext, type Emitter } from '../emitters/EmitterContext';
+import { KeyEmitter } from '../emitters/KeyEmitter';
 import { ScreenBottomEmitter } from '../emitters/ScreenBottomEmitter';
 import { WindowFrameEmitter } from '../emitters/WindowFrameEmitter';
 import { Device } from '../gl/Device';
@@ -59,8 +63,14 @@ const HUD_INTERVAL_MS = 250;
 export class App {
   private settings: Settings = DEFAULT_SETTINGS;
   private preset: IntensityPreset = INTENSITY_PRESETS[DEFAULT_SETTINGS.intensity];
+  /** Resolved theme (built-in palette flavour or an imported JSON theme). */
+  private theme: ThemeDefinition = BUILTIN_THEMES[DEFAULT_SETTINGS.palette];
+  /** True once the host pushed a theme; until then the palette setting picks a built-in. */
+  private themeFromHost = false;
   private display: DisplayInfo | null = null;
   private caps: HostCapabilities | null = null;
+  /** Read-only here (the main process already clamps the settings it sends); shown in the HUD. */
+  private license: LicenseInfo | null = null;
   private gpu: GpuScene | null = null;
 
   private readonly queue = new SplatQueue();
@@ -72,6 +82,7 @@ export class App {
   private readonly burstEmitter: BurstEmitter;
   private readonly windowEmitter = new WindowFrameEmitter();
   private readonly bottomEmitter = new ScreenBottomEmitter();
+  private readonly keyEmitter: KeyEmitter;
   private readonly emitters: Emitter[];
   private readonly simParams: SimParams = {
     heatDissipation: 0.93,
@@ -88,6 +99,8 @@ export class App {
   private synthetic: SyntheticCursor | null = null;
   private readonly syntheticPoint = { x: 0, y: 0 };
   private nextSyntheticBurst = 0;
+  private audio: AudioReactor | null = null;
+  private audioWanted: { source: Settings['audioSource'] } | null = null;
 
   private cssWidth = 1;
   private cssHeight = 1;
@@ -120,7 +133,8 @@ export class App {
     this.ctx = new EmitterContext(this.queue, this.sparks);
     this.cursorEmitter = new CursorEmitter(this.cursor, this.ctx);
     this.burstEmitter = new BurstEmitter(this.ctx);
-    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.bottomEmitter];
+    this.keyEmitter = new KeyEmitter(this.cursor);
+    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.bottomEmitter, this.keyEmitter];
     this.warmupPending = options.warmup;
     this.look.view = options.view;
   }
@@ -140,6 +154,12 @@ export class App {
       this.log('warn', `initial state unavailable, using defaults: ${describe(err)}`);
       this.applySettings(DEFAULT_SETTINGS);
     }
+    try {
+      // Older hosts have no getTheme: the palette setting then selects a built-in theme.
+      if (typeof this.api.getTheme === 'function') this.applyTheme(await this.api.getTheme(), true);
+    } catch (err) {
+      this.log('debug', `theme unavailable, using the palette: ${describe(err)}`);
+    }
 
     let error: string | undefined;
     try {
@@ -158,6 +178,13 @@ export class App {
     } catch (err) {
       this.log('error', `listener setup failed: ${describe(err)}`);
     }
+    // Licence is informational for the overlay; never block start-up on it.
+    void Promise.resolve()
+      .then(() => this.api.getLicense())
+      .then((info) => {
+        this.license = info;
+      })
+      .catch(() => undefined);
 
     this.reportReady(error);
     this.running = true;
@@ -194,7 +221,7 @@ export class App {
     try {
       sim = new FireSimulation(device, w, h, this.queue);
       renderer = new FireRenderer(device, sim.width, sim.height);
-      renderer.setPalette(PALETTE_DEFINITIONS[this.settings.palette]);
+      renderer.setPalette(themePalette(this.theme));
       fireCursor = new FireCursor(device);
       const sparkRenderer = new SparkRenderer(device, this.sparks.capacity);
       this.gpu = { device, sim, renderer, fireCursor, sparkRenderer };
@@ -297,9 +324,7 @@ export class App {
     this.sparks.budget = this.preset.sparkBudget;
     this.refreshSimParams();
     this.hud.setVisible(next.showDebugHud || this.options.hud);
-    if (this.gpu && next.palette !== prev.palette) {
-      this.gpu.renderer.setPalette(PALETTE_DEFINITIONS[next.palette]);
-    }
+    if (!this.themeFromHost && next.palette !== prev.palette) this.applyTheme(BUILTIN_THEMES[next.palette], false);
     if (next.simScale !== prev.simScale) this.updateSimSize();
     if (!next.sparks) this.sparks.clear();
     if (next.enabled && !prev.enabled) {
@@ -307,20 +332,85 @@ export class App {
       this.lastTickAt = 0;
       this.scheduleRaf();
     }
+    this.syncAudio();
+  }
+
+  // ───────────────────────────── Sound reactivity ─────────────────────────────
+
+  /** Starts/stops/re-sources the audio capture to match the settings. */
+  private syncAudio(): void {
+    const s = this.settings;
+    const want = s.enabled && s.audioReactive ? { source: s.audioSource } : null;
+    if (want) {
+      if (!this.audio) {
+        this.audio = new AudioReactor({
+          simulate: this.options.audioSim,
+          loopbackAvailable: this.caps?.audioLoopback ?? false,
+          onStatus: (status) => {
+            this.log(status.state === 'active' || status.state === 'off' ? 'info' : 'warn', `audio: ${status.state} (${status.source})${status.message ? ` — ${status.message}` : ''}`);
+            try {
+              this.api.reportAudioStatus(status);
+            } catch {
+              /* ignore */
+            }
+          },
+        });
+      }
+      this.audio.setGain(s.audioGain);
+      if (!this.audioWanted || this.audioWanted.source !== want.source) {
+        this.audioWanted = want;
+        void this.audio.start(want.source);
+      }
+    } else if (this.audio) {
+      this.audioWanted = null;
+      this.audio.stop();
+      this.ctx.audio = this.audio.levels; // zeroed by stop()
+    }
+  }
+
+  private updateAudio(dt: number): void {
+    const a = this.audio;
+    if (!a) return;
+    const levels = a.update(dt);
+    this.ctx.audio = levels;
+    // A strong beat under the cursor: a small burst, so kicks are visible even when the mouse rests.
+    if (levels.beatHit && levels.bass > 0.55 && this.cursor.hasPosition && this.cursor.inside) {
+      this.burstEmitter.trigger(this.cursor.x, this.cursor.y, this.preset.burst * (0.25 + 0.35 * levels.bass), 'other');
+    }
+  }
+
+  /** Applies a theme: palette LUT, look and simulation flavour. */
+  private applyTheme(theme: ThemeDefinition, fromHost: boolean): void {
+    if (fromHost) this.themeFromHost = true;
+    if (themesEqual(theme, this.theme)) return;
+    this.theme = theme;
+    this.gpu?.renderer.setPalette(themePalette(theme));
+    this.look.detail = theme.look.detail;
+    this.look.glow = theme.look.glow;
+    this.look.smoke = theme.look.smoke;
+    this.look.smokeColor = theme.look.smokeColor;
+    this.look.noiseSpeed = theme.look.noiseSpeed * (theme.sim.flow < 0 ? -1 : 1);
+    this.ctx.flow = theme.sim.flow;
+    this.refreshSimParams();
   }
 
   private refreshSimParams(): void {
     const p = this.preset;
     const s = this.simParams;
+    const a = this.ctx.audio;
+    const th = this.theme.sim;
+    // Music lifts and twists the whole field a little: buoyancy follows the level, swirl the highs.
+    const lift = a.active ? 1 + 0.45 * a.level + 0.3 * a.beat : 1;
+    const swirl = a.active ? 1 + 0.5 * a.high : 1;
     // Flame lifetime ≈ 1 / cooling: low 0.25 s, medium 0.36 s, high 0.56 s, inferno 1 s.
-    s.heatDissipation = p.heatDissipation;
+    s.heatDissipation = clamp(1 - (1 - p.heatDissipation) * th.heatLoss, 0, 1);
     s.smokeDissipation = 0.4;
     // Presets express velocity retention generously; swirl should settle within a couple of seconds.
-    s.velocityDissipation = Math.pow(p.velocityDissipation, 8);
-    s.cooling = (1 - p.heatDissipation) * 35;
-    s.buoyancy = p.buoyancy * 1.1;
-    s.curl = p.curl * 2;
-    s.maxSpeed = 1.0 + p.buoyancy * 0.35;
+    s.velocityDissipation = clamp(1 - (1 - Math.pow(p.velocityDissipation, 8)) * th.velocityLoss, 0, 1);
+    s.cooling = (1 - p.heatDissipation) * 35 * th.cooling;
+    s.buoyancy = p.buoyancy * 1.1 * lift * th.buoyancy;
+    s.curl = p.curl * 2 * swirl * th.curl;
+    s.maxSpeed = (1.0 + p.buoyancy * 0.35) * lift * th.maxSpeed;
     s.pressureIterations = this.settings.pressureIterations;
   }
 
@@ -329,12 +419,17 @@ export class App {
     this.unsubscribers.push(
       api.onCursor((e) => this.handleCursor(e)),
       api.onPointerButton((e) => this.handlePointerButton(e)),
+      api.onKey((e) => this.handleKey(e)),
       api.onActiveWindow((e) => this.handleActiveWindow(e)),
       api.onSettings((s) => this.applySettings(s)),
       api.onDisplay((d) => this.handleDisplay(d)),
       api.onCapabilities((c) => this.handleCapabilities(c)),
       api.onTestBurst((p) => this.handleTestBurst(p)),
+      api.onLicense((info) => {
+        this.license = info;
+      }),
     );
+    if (typeof api.onTheme === 'function') this.unsubscribers.push(api.onTheme((theme) => this.applyTheme(theme, true)));
   }
 
   private handleCursor(e: CursorEvent): void {
@@ -353,8 +448,14 @@ export class App {
     this.burstEmitter.trigger(p.x, p.y, Number.isFinite(p.strength) ? p.strength : this.preset.burst);
   }
 
+  private handleKey(e: KeyEvent): void {
+    if (!this.settings.enabled || !this.settings.typingFire) return;
+    this.keyEmitter.push(e.kind);
+  }
+
   private handleActiveWindow(e: ActiveWindowEvent | null): void {
     this.windowEmitter.setTarget(e);
+    this.keyEmitter.setWindowRect(e && !e.isSelf && e.intersects ? e.bounds : null);
   }
 
   private handleDisplay(d: DisplayInfo): void {
@@ -365,6 +466,7 @@ export class App {
   private handleCapabilities(c: HostCapabilities): void {
     this.caps = c;
     this.updateSmokeDriver();
+    this.syncAudio();
   }
 
   private updateSmokeDriver(): void {
@@ -513,6 +615,10 @@ export class App {
     this.cursor.tick(dt);
     this.ctx.dt = dt;
     this.ctx.time = this.time;
+    if (this.audio) {
+      this.updateAudio(dt);
+      this.refreshSimParams();
+    }
     this.driveSynthetic();
     for (const e of this.emitters) e.update(this.ctx);
     if (this.settings.sparks) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
@@ -554,7 +660,7 @@ export class App {
       );
     }
     if (s.sparks) {
-      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, PALETTE_DEFINITIONS[s.palette].spark);
+      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, this.theme.spark);
     }
   }
 
@@ -610,12 +716,20 @@ export class App {
     if (s.clickBursts) active.push(`burst(${this.burstEmitter.total})${this.burstEmitter.active ? '*' : ''}`);
     if (s.burnActiveWindow) active.push(`window${this.windowEmitter.visible ? '*' : ''}`);
     if (s.screenBottomFire) active.push('bottom*');
-    const state = !s.enabled ? 'PAUSED' : this.contextLost ? 'CONTEXT LOST' : !g ? 'NO GPU' : document.hidden ? 'HIDDEN' : 'running';
+    if (s.typingFire) active.push(`keys(${this.keyEmitter.total})${this.keyEmitter.active ? '*' : ''} combo ${this.keyEmitter.combo.toFixed(2)}`);
+    if (s.audioReactive) {
+      const a = this.ctx.audio;
+      const st = this.audio?.currentStatus;
+      active.push(
+        `audio:${st?.state ?? 'off'}${a.active ? ` L${a.level.toFixed(2)} B${a.bass.toFixed(2)} M${a.mid.toFixed(2)} H${a.high.toFixed(2)}${a.bpm ? ` ${a.bpm}bpm` : ''}` : ''}`,
+      );
+    }
+    const state =!s.enabled ? 'PAUSED' : this.contextLost ? 'CONTEXT LOST' : !g ? 'NO GPU' : document.hidden ? 'HIDDEN' : 'running';
     const lines = [
       `prăjeală ${state} · ${this.fps} fps (cap ${s.maxFps}) · frames ${this.frames}${this.env.mock ? ' · mock' : ''}`,
       `sim ${g?.sim.width ?? 0}×${g?.sim.height ?? 0} (scale ${s.simScale}, ${s.pressureIterations} it) · canvas ${this.canvas.width}×${this.canvas.height} @${this.dpr.toFixed(2)}x`,
       `gpu ${caps?.renderer ?? 'n/a'} · float ${caps?.floatTextures ? 'yes' : 'no'} · linear ${caps?.linearFiltering ? 'yes' : 'no'}`,
-      `intensity ${s.intensity} · palette ${s.palette} · emitters ${active.join(' ') || 'none'}`,
+      `intensity ${s.intensity} · theme ${this.theme.id}${this.theme.basePalette && this.theme.id !== this.theme.basePalette ? ` (${this.theme.basePalette})` : ''} · tier ${this.license?.tier ?? '?'} · emitters ${active.join(' ') || 'none'}`,
       `sparks ${this.sparks.count}/${this.sparks.budget} · queue drops ${this.queue.dropped}`,
       `cursor ${c.hasPosition ? `${c.x.toFixed(0)},${c.y.toFixed(0)} ${c.inside ? 'in' : 'out'} ${c.speed.toFixed(0)} px/s` : 'n/a'}`,
       `display ${this.display ? `#${this.display.index + 1}/${this.display.total} ${this.display.bounds.width}×${this.display.bounds.height} sf ${this.display.scaleFactor}` : 'n/a'} · caps ${this.caps ? `${this.caps.platform} clicks:${this.caps.globalClicks ? 'y' : 'n'} window:${this.caps.activeWindow ? 'y' : 'n'}${this.caps.smoke ? ' smoke' : ''}` : 'n/a'}`,
@@ -645,6 +759,8 @@ export class App {
     if (this.statsTimer) clearInterval(this.statsTimer);
     for (const u of this.unsubscribers) u();
     this.unsubscribers.length = 0;
+    this.audio?.stop();
+    this.audio = null;
     this.disposeGpu();
     this.hud.dispose();
   }

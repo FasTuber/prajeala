@@ -8,18 +8,22 @@
  *   overlays.on('ready', (overlay, report))
  *   overlays.on('stats', (overlay, stats))
  *   overlays.on('log',   (overlay, level, message))
+ *   overlays.on('audio-status', (overlay, status))
  */
 import { EventEmitter } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, ipcMain, screen, type Display, type IpcMainEvent, type WebContents } from 'electron';
 import {
   IPC,
+  type AudioStatus,
   type DisplayInfo,
   type HostCapabilities,
   type RendererReadyReport,
   type RendererStats,
 } from '../shared/ipc';
+import { AUDIO_SOURCES } from '../shared/settings';
 import type { Settings } from '../shared/settings';
+import type { ThemeDefinition } from '../shared/theme';
 import { createLogger, type LogLevel } from './log';
 
 const log = createLogger('overlay');
@@ -36,6 +40,7 @@ export interface OverlayContext {
   getSettings(): Settings;
   updateSettings(patch: unknown): Settings;
   getCapabilities(): HostCapabilities;
+  getTheme(): ThemeDefinition;
 }
 
 export interface Overlay {
@@ -90,7 +95,8 @@ export class OverlayManager extends EventEmitter {
     return this.overlays.size;
   }
 
-  byWebContents(wc: WebContents): Overlay | undefined {
+  byWebContents(wc: WebContents | null | undefined): Overlay | undefined {
+    if (!wc) return undefined;
     for (const overlay of this.overlays.values()) {
       if (!overlay.window.isDestroyed() && overlay.window.webContents.id === wc.id) return overlay;
     }
@@ -335,6 +341,7 @@ export class OverlayManager extends EventEmitter {
       wc.send(IPC.display, overlay.info);
       wc.send(IPC.capabilities, this.ctx.getCapabilities());
       wc.send(IPC.settings, this.ctx.getSettings());
+      wc.send(IPC.theme, this.ctx.getTheme());
     } catch (err) {
       log.debug('initial state push failed:', err);
     }
@@ -343,6 +350,7 @@ export class OverlayManager extends EventEmitter {
   private registerIpc(): void {
     ipcMain.handle(IPC.getSettings, () => this.ctx.getSettings());
     ipcMain.handle(IPC.getCapabilities, () => this.ctx.getCapabilities());
+    ipcMain.handle(IPC.getTheme, () => this.ctx.getTheme());
     ipcMain.handle(IPC.getDisplay, (event) => {
       const overlay = this.byWebContents(event.sender);
       if (!overlay) throw new Error('unknown overlay window');
@@ -359,6 +367,11 @@ export class OverlayManager extends EventEmitter {
       const overlay = this.byWebContents(event.sender);
       if (!overlay) return;
       this.emit('stats', overlay, sanitizeStats(stats));
+    });
+    ipcMain.on(IPC.audioStatus, (event: IpcMainEvent, status: unknown) => {
+      const overlay = this.byWebContents(event.sender);
+      if (!overlay) return;
+      this.emit('audio-status', overlay, sanitizeAudioStatus(status));
     });
     ipcMain.on(IPC.log, (event: IpcMainEvent, entry: unknown) => {
       const overlay = this.byWebContents(event.sender);
@@ -388,6 +401,17 @@ function sanitizeReady(input: unknown): RendererReadyReport {
     canvasHeight: num(r.canvasHeight),
   };
   if (typeof r.error === 'string' && r.error.length > 0) out.error = r.error;
+  return out;
+}
+
+const AUDIO_STATES: ReadonlyArray<AudioStatus['state']> = ['off', 'starting', 'active', 'denied', 'unavailable', 'error'];
+
+function sanitizeAudioStatus(input: unknown): AudioStatus {
+  const s = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const state = AUDIO_STATES.includes(s.state as AudioStatus['state']) ? (s.state as AudioStatus['state']) : 'error';
+  const source = (AUDIO_SOURCES as readonly string[]).includes(String(s.source)) ? (s.source as AudioStatus['source']) : 'microphone';
+  const out: AudioStatus = { state, source };
+  if (typeof s.message === 'string' && s.message.length > 0) out.message = s.message.slice(0, 200);
   return out;
 }
 

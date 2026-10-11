@@ -4,6 +4,7 @@
  */
 import type { Settings, IntensityPreset } from '../../shared/settings';
 import { DEFAULT_SETTINGS, INTENSITY_PRESETS } from '../../shared/settings';
+import { emptyLevels, type AudioLevels } from '../audio/AudioAnalysis';
 import type { SplatQueue } from '../sim/SplatQueue';
 import type { Sparks } from '../sparks/Sparks';
 
@@ -23,15 +24,25 @@ export class EmitterContext {
   time = 0;
   settings: Settings = DEFAULT_SETTINGS;
   preset: IntensityPreset = INTENSITY_PRESETS[DEFAULT_SETTINGS.intensity];
+  /** Sound levels for this frame (all zero / inactive when sound reactivity is off). */
+  audio: AudioLevels = emptyLevels();
+  /** Theme flow: multiplier for the emitters' vertical push (1 fire rises, -1 water sinks). */
+  flow = 1;
 
   constructor(
     readonly queue: SplatQueue,
     readonly sparks: Sparks,
   ) {}
 
-  /** Base splat radius in CSS px (preset radius × short side). */
+  /** Base splat radius in CSS px (preset radius × short side), swelling with the bass. */
   get radius(): number {
-    return this.preset.radius * Math.min(this.width, this.height);
+    return this.preset.radius * Math.min(this.width, this.height) * (1 + 0.35 * this.audio.bass);
+  }
+
+  /** Multiplier for emitter temperature/strength driven by the music (1 when inactive). */
+  get audioBoost(): number {
+    const a = this.audio;
+    return a.active ? 0.75 + 0.6 * a.level + 0.35 * a.beat : 1;
   }
 
   /** Converts an amount per second into an amount for this frame. */
@@ -41,6 +52,14 @@ export class EmitterContext {
 
   inView(x: number, y: number, margin: number): boolean {
     return x >= -margin && x <= this.width + margin && y >= -margin && y <= this.height + margin;
+  }
+
+  /**
+   * Vertical push (CSS px/s or px/s²) of `k` screen heights "along the flow":
+   * negative (upward on screen) for fire, downward when the theme sinks.
+   */
+  lift(k: number): number {
+    return -this.height * k * this.flow;
   }
 
   /**

@@ -6,27 +6,38 @@
  * This is a tray application: closing every window never quits; only the
  * tray, the global shortcut or the smoke runner do.
  */
-import { app, shell } from 'electron';
+import { Notification, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { mkdirSync } from 'node:fs';
 import {
   IPC,
   type ActiveWindowEvent,
+  type AudioStatus,
   type CursorEvent,
   type HostCapabilities,
+  type KeyEvent,
   type PointerButtonEvent,
   type Rect,
 } from '../shared/ipc';
+import { applyTierLimits, type LicenseActionResult } from '../shared/license';
 import type { Settings } from '../shared/settings';
 import { ActiveWindowTracker, type ActiveWindowInfo } from './active-window-tracker';
+import { ensureMicrophoneAccess, installAudioPermissions, loopbackAvailable } from './audio-permissions';
 import { parseCli, type CliOptions } from './cli';
 import { CursorTracker, type CursorSample } from './cursor-tracker';
 import { rectCenter, rectContainsPoint, rectsIntersect, toLocalPoint, toLocalRect } from './geometry';
+import { LemonSqueezyClient } from './lemon-squeezy';
+import { loadLicenseConfig } from './license-config';
+import { LicenseStore } from './license-store';
+import { LicenseWindow } from './license-window';
 import { createLogger, setVerbose } from './log';
 import { OverlayManager } from './overlay-manager';
-import { preloadPath, rendererHtmlPath, settingsFilePath } from './paths';
+import { licenseFilePath, licenseHtmlPath, preloadPath, rendererHtmlPath, settingsFilePath, themesDir } from './paths';
 import { SettingsStore } from './settings-store';
 import { registerShortcuts, unregisterShortcuts } from './shortcuts';
 import { SmokeRunner } from './smoke';
+import { ThemeStore } from './theme-store';
 import { TrayController } from './tray';
+import { themesEqual, type ThemeDefinition } from '../shared/theme';
 
 const cli: CliOptions = parseCli(process.argv.slice(1));
 setVerbose(cli.verbose);
@@ -50,6 +61,8 @@ if (process.platform === 'linux' && cli.linuxTransparentVisuals) {
 
 interface Runtime {
   store: SettingsStore;
+  license: LicenseStore;
+  licenseWindow: LicenseWindow;
   overlays: OverlayManager;
   cursor: CursorTracker;
   activeWindow: ActiveWindowTracker;
@@ -101,16 +114,38 @@ if (!app.requestSingleInstanceLock()) {
 
 async function main(): Promise<void> {
   log.info(`Prăjeală ${app.getVersion()} — electron ${process.versions.electron}, ${process.platform}/${process.arch}`);
-  log.debug('cli', cli);
+  log.debug('cli', { ...cli, license: cli.license ? '<redacted>' : null });
 
   const store = new SettingsStore({ filePath: settingsFilePath(), persist: !cli.smoke });
   store.load();
+
+  // ── Licence (Free / Pro) ───────────────────────────────────────────────
+  const licenseConfig = loadLicenseConfig();
+  const license = new LicenseStore({
+    filePath: licenseFilePath(),
+    config: licenseConfig,
+    client: new LemonSqueezyClient(),
+    persist: !cli.smoke,
+    onlineCheckEnabled: () => store.get().licenseOnlineCheck,
+  });
+  license.load();
+  /** What the overlays run with: the stored settings clamped to the current tier. */
+  const effectiveSettings = (): Settings => applyTierLimits(store.get(), license.tier);
+  const licenseWindow = new LicenseWindow({ preloadPath, htmlPath: licenseHtmlPath, getLicense: () => license.get() });
+  const themes = new ThemeStore(themesDir(), !cli.smoke);
+  let currentTheme: ThemeDefinition = themes.resolve(effectiveSettings());
+  const resolveTheme = (): ThemeDefinition => {
+    currentTheme = themes.resolve(effectiveSettings());
+    return currentTheme;
+  };
 
   const capabilities: HostCapabilities = {
     globalClicks: false,
     activeWindow: false,
     platform: process.platform,
     smoke: cli.smoke,
+    audioLoopback: loopbackAvailable(),
+    globalKeys: false,
   };
 
   const overlays = new OverlayManager({
@@ -119,10 +154,29 @@ async function main(): Promise<void> {
     rendererUrl: cli.rendererUrl,
     debugHud: cli.debugHud, // `?hud=1`; the persistent toggle travels via settings.showDebugHud
     displayIndex: cli.display,
-    getSettings: () => store.get(),
+    getSettings: effectiveSettings,
     updateSettings: (patch) => store.update(patch),
     getCapabilities: () => capabilities,
+    getTheme: () => currentTheme,
   });
+  registerLicenseIpc(license, licenseWindow);
+  installAudioPermissions({
+    isAllowed: () => {
+      const s = effectiveSettings();
+      return s.enabled && s.audioReactive;
+    },
+    isOverlay: (wc) => overlays.byWebContents(wc) !== undefined,
+  });
+  /** Last audio status per overlay (for the tray). */
+  const audioStatuses = new Map<number, AudioStatus>();
+  const audioStatusSummary = (): AudioStatus | null => {
+    // Prefer the primary overlay's report; any active one wins over errors.
+    let best: AudioStatus | null = null;
+    for (const [id, st] of audioStatuses) {
+      if (!best || st.state === 'active' || (id === overlays.list()[0]?.id && best.state !== 'active')) best = st;
+    }
+    return best;
+  };
 
   // ── Trackers ───────────────────────────────────────────────────────────
   const cursor = new CursorTracker({
@@ -145,6 +199,11 @@ async function main(): Promise<void> {
         };
       });
     },
+    onKey: (kind, t) => {
+      // Only the kind travels; nothing is logged (not even at debug level).
+      if (!effectiveSettings().typingFire) return;
+      overlays.sendToAll<KeyEvent>(IPC.key, () => ({ kind, t }));
+    },
   });
 
   let lastActiveWindow: ActiveWindowInfo | null = null;
@@ -160,7 +219,10 @@ async function main(): Promise<void> {
 
   cursor.start();
   capabilities.globalClicks = cursor.globalClicks;
-  log.info(`capabilities: clicks=${capabilities.globalClicks} activeWindow=${capabilities.activeWindow} smoke=${capabilities.smoke}`);
+  capabilities.globalKeys = cursor.globalKeys;
+  log.info(
+    `capabilities: clicks=${capabilities.globalClicks} keys=${capabilities.globalKeys} activeWindow=${capabilities.activeWindow} loopback=${capabilities.audioLoopback} smoke=${capabilities.smoke}`,
+  );
 
   // ── Actions shared by tray + shortcuts ─────────────────────────────────
   const testBurst = (strength = 1): void => {
@@ -183,19 +245,121 @@ async function main(): Promise<void> {
       })
       .catch((err: unknown) => log.warn('could not open settings file:', err));
   };
+  const openBuyPage = (): void => {
+    const url = license.get().buyUrl;
+    void shell.openExternal(url).catch((err: unknown) => log.warn(`could not open ${url}:`, err));
+  };
+  const notify = (title: string, body: string): void => {
+    log.info(`${title}: ${body}`);
+    if (cli.smoke) return;
+    try {
+      if (Notification.isSupported()) {
+        new Notification({ title, body, silent: true }).show();
+        return;
+      }
+    } catch (err) {
+      log.debug('notification failed:', err);
+    }
+    void dialog.showMessageBox({ type: 'info', title, message: title, detail: body, buttons: ['OK'] });
+  };
+  const reportLicenseAction = (what: string, result: LicenseActionResult): void => {
+    if (result.ok) notify('Prăjeală licence', `${what}: ${result.info.message}`);
+    else notify('Prăjeală licence', `${what} failed: ${result.error ?? 'unknown error'}`);
+  };
+  const activateLicenseFromClipboard = (): void => {
+    void Promise.resolve(clipboard.readText())
+      .then((raw) => {
+        const text = String(raw ?? '').trim();
+        if (!text) {
+          notify('Prăjeală licence', 'The clipboard is empty — copy your licence key first.');
+          return;
+        }
+        return license.activate(text).then((r) => reportLicenseAction('Activation', r));
+      })
+      .catch((err: unknown) => log.warn('clipboard read failed:', err));
+  };
+  const checkLicenseOnline = (): void => {
+    void license.checkOnline().then((r) => reportLicenseAction('Online check', r));
+  };
+  const importTheme = (): void => {
+    void dialog
+      .showOpenDialog({
+        title: 'Import a Prăjeală theme',
+        filters: [{ name: 'Prăjeală theme (JSON)', extensions: ['json'] }],
+        properties: ['openFile'],
+      })
+      .then((r) => {
+        const file = r.filePaths[0];
+        if (r.canceled || !file) return;
+        const result = themes.importFile(file);
+        if (!result.ok || !result.theme) {
+          notify('Prăjeală theme', `Import failed: ${result.error ?? 'unknown error'}`);
+          return;
+        }
+        store.update({ themeId: result.theme.id });
+        notify('Prăjeală theme', `Imported "${result.theme.name}".`);
+      })
+      .catch((err: unknown) => log.warn('import dialog failed:', err));
+  };
+  const exportTheme = (): void => {
+    const theme = resolveTheme();
+    void dialog
+      .showSaveDialog({
+        title: 'Export the current theme',
+        defaultPath: `${theme.id}.json`,
+        filters: [{ name: 'Prăjeală theme (JSON)', extensions: ['json'] }],
+      })
+      .then((r) => {
+        if (r.canceled || !r.filePath) return;
+        const result = themes.exportTo(theme, r.filePath);
+        notify('Prăjeală theme', result.ok ? `Exported "${theme.name}" to ${r.filePath}.` : `Export failed: ${result.error ?? 'unknown error'}`);
+      })
+      .catch((err: unknown) => log.warn('export dialog failed:', err));
+  };
+  const openThemesFolder = (): void => {
+    try {
+      mkdirSync(themes.dir, { recursive: true });
+    } catch (err) {
+      log.debug('could not create the themes folder:', err);
+    }
+    void shell.openPath(themes.dir).then((err) => {
+      if (err) log.warn(`could not open ${themes.dir}: ${err}`);
+    });
+  };
 
   const tray = new TrayController({
     getSettings: () => store.get(),
     updateSettings: (patch) => store.update(patch),
     getCapabilities: () => capabilities,
+    getLicense: () => license.get(),
+    getAudioStatus: audioStatusSummary,
+    listThemes: () => themes.list(),
+    importTheme,
+    exportTheme,
+    openThemesFolder,
     testBurst: () => testBurst(1),
     openSettingsFile,
+    openLicenseWindow: () => licenseWindow.show(),
+    activateLicenseFromClipboard,
+    checkLicenseOnline,
+    openBuyPage,
     quit,
   });
 
-  runtime = { store, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
+  runtime = {
+    store,
+    license,
+    licenseWindow,
+    overlays,
+    cursor,
+    activeWindow,
+    tray,
+    smoke: null,
+    capabilities,
+    shuttingDown: false,
+  };
 
-  // ── Settings → everything else ─────────────────────────────────────────
+  // ── Settings + licence → everything else ───────────────────────────────
   let lastEnabled: boolean | null = null;
   const applySettings = (s: Settings): void => {
     overlays.setVisible(s.enabled);
@@ -203,11 +367,36 @@ async function main(): Promise<void> {
     if (lastEnabled !== s.enabled) log.info(s.enabled ? 'fire enabled' : 'fire paused');
     lastEnabled = s.enabled;
   };
-  store.onChange((next) => {
-    log.debug('settings changed', next);
-    overlays.sendToAll(IPC.settings, () => next);
-    applySettings(next);
+  const pushEffectiveSettings = (): void => {
+    const effective = effectiveSettings();
+    overlays.sendToAll(IPC.settings, () => effective);
+    const previousTheme = currentTheme;
+    const theme = resolveTheme();
+    if (!themesEqual(theme, previousTheme)) {
+      log.info(`theme: ${theme.name} (${theme.id})`);
+      overlays.sendToAll(IPC.theme, () => theme);
+    }
+    applySettings(effective);
     tray.refresh();
+  };
+  store.onChange((next, previous) => {
+    log.debug('settings changed', next);
+    if (next.licenseOnlineCheck !== previous.licenseOnlineCheck) license.refresh();
+    if (next.audioReactive && !previous.audioReactive && effectiveSettings().audioReactive) {
+      // macOS shows the microphone prompt only when main asks; do it before the renderer tries.
+      void ensureMicrophoneAccess().then((status) => {
+        if (status === 'denied') audioStatuses.set(-1, { state: 'denied', source: next.audioSource, message: 'microphone access denied in System Settings' });
+        tray.refresh();
+      });
+    }
+    if (!next.audioReactive) audioStatuses.clear();
+    pushEffectiveSettings();
+  });
+  license.onChange((info, previous) => {
+    if (info.tier !== previous.tier) log.info(`licence tier: ${previous.tier} → ${info.tier}`);
+    overlays.sendToAll(IPC.license, () => info);
+    licenseWindow.send(info);
+    pushEffectiveSettings();
   });
 
   // ── Renderer → main messages ───────────────────────────────────────────
@@ -224,9 +413,18 @@ async function main(): Promise<void> {
   overlays.on('stats', (overlay, stats) => {
     log.debug(`[overlay#${overlay.info.index}] frames=${stats.frames} fps=${stats.fps.toFixed(1)} sparks=${stats.sparks}`);
   });
+  overlays.on('audio-status', (overlay, status: AudioStatus) => {
+    const prev = audioStatuses.get(overlay.id);
+    audioStatuses.set(overlay.id, status);
+    audioStatuses.delete(-1);
+    if (!prev || prev.state !== status.state || prev.source !== status.source) {
+      log.info(`[overlay#${overlay.info.index}] audio ${status.state} (${status.source})${status.message ? `: ${status.message}` : ''}`);
+      tray.refresh();
+    }
+  });
   overlays.on('overlays-changed', () => {
     // New windows start hidden; respect the current pause state.
-    applySettings(store.get());
+    applySettings(effectiveSettings());
   });
   overlays.on('loaded', (overlay) => {
     // A freshly (re)loaded page gets the current cursor and active window right away,
@@ -274,8 +472,26 @@ async function main(): Promise<void> {
   registerShortcuts({
     getSettings: () => store.get(),
     updateSettings: (patch) => store.update(patch),
+    getTier: () => license.tier,
     testBurst: () => testBurst(1),
     quit,
+  });
+  if (!cli.smoke) license.startScheduler();
+  if (cli.license) void license.activate(cli.license).then((r) => reportLicenseAction('Activation (--license)', r));
+  if (cli.licenseWindow && !cli.smoke) licenseWindow.show();
+}
+
+/** invoke/send channels used by the licence window (and read-only by the overlays). */
+function registerLicenseIpc(license: LicenseStore, licenseWindow: LicenseWindow): void {
+  ipcMain.handle(IPC.getLicense, () => license.get());
+  ipcMain.handle(IPC.activateLicense, (_event, key: unknown) => license.activate(key));
+  ipcMain.handle(IPC.deactivateLicense, () => license.deactivate());
+  ipcMain.handle(IPC.checkLicense, () => license.checkOnline());
+  ipcMain.handle(IPC.openBuyPage, async () => {
+    await shell.openExternal(license.get().buyUrl);
+  });
+  ipcMain.handle(IPC.closeLicenseWindow, (event) => {
+    if (licenseWindow.owns(event.sender.id)) licenseWindow.close();
   });
 }
 
@@ -304,9 +520,9 @@ function broadcastActiveWindow(overlays: OverlayManager, info: ActiveWindowInfo 
   overlays.sendToAll<ActiveWindowEvent | null>(IPC.activeWindow, (display) => toActiveWindowEvent(info, display.bounds));
 }
 
-/** Our own windows: same process (macOS/Windows report the main pid) or the overlay title (X11 reports a helper pid). */
+/** Our own windows: same process (macOS/Windows report the main pid) or our titles (X11 reports a helper pid). */
 function isSelfWindow(info: ActiveWindowInfo): boolean {
-  return info.pid === process.pid || /^Prăjeal[aă] overlay$/.test(info.title);
+  return info.pid === process.pid || /^Prăjeal[aă](\s|$)/.test(info.title);
 }
 
 function toActiveWindowEvent(info: ActiveWindowInfo, displayBounds: Rect): ActiveWindowEvent {
@@ -326,9 +542,11 @@ function shutdown(): void {
   rt.shuttingDown = true;
   log.debug('shutting down');
   unregisterShortcuts();
+  rt.license.stopScheduler();
   rt.cursor.stop();
   rt.activeWindow.stop();
   rt.tray.destroy();
+  rt.licenseWindow.destroy();
   rt.store.flushSync();
   rt.overlays.destroy();
 }

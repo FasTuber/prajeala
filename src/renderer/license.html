@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    />
+    <title>Prăjeală — licence</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #15110f;
+        --panel: #1f1915;
+        --text: #f3e9dc;
+        --muted: #a89a8a;
+        --accent: #ff7a1a;
+        --accent-2: #ffb347;
+        --ok: #7ed66d;
+        --warn: #ffcc66;
+        --err: #ff6b6b;
+        --border: rgba(255, 140, 40, 0.35);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        user-select: none;
+      }
+      main {
+        padding: 18px 20px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        height: 100vh;
+      }
+      h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 650;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .tier {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--accent-2);
+      }
+      .tier.pro {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        color: #1a0e05;
+        border-color: transparent;
+      }
+      #status {
+        color: var(--muted);
+        min-height: 2.9em;
+        white-space: pre-line;
+      }
+      #status.ok {
+        color: var(--ok);
+      }
+      #status.warn {
+        color: var(--warn);
+      }
+      #status.err {
+        color: var(--err);
+      }
+      label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      textarea {
+        width: 100%;
+        height: 72px;
+        resize: none;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        padding: 8px 10px;
+        font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+        user-select: text;
+      }
+      textarea:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 7px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #1a0e05;
+        font-weight: 650;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      footer {
+        margin-top: auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Prăjeală <span id="tier" class="tier">Free</span></h1>
+      <div id="status">Loading…</div>
+      <label for="key">Licence key (signed <code>PRAJ1.…</code> key or your Lemon Squeezy key)</label>
+      <textarea id="key" spellcheck="false" placeholder="PRAJ1.…  or  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></textarea>
+      <div class="row">
+        <button id="activate" class="primary">Activate</button>
+        <button id="check">Check online</button>
+        <button id="deactivate">Remove key</button>
+        <span class="spacer"></span>
+        <button id="buy">Buy Pro…</button>
+      </div>
+      <div id="meta" class="meta"></div>
+      <footer>
+        <span class="meta">Free: classic palette, intensity up to Medium, no fire on windows. Pro: everything.</span>
+        <span class="spacer"></span>
+        <button id="close">Close</button>
+      </footer>
+    </main>
+    <script type="module" src="./license.js"></script>
+  </body>
+</html>

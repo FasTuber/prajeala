@@ -19,6 +19,9 @@
  *   --linux-transparent-visuals
  *                           Linux only: add --enable-transparent-visuals and
  *                           --disable-gpu-compositing (needed on some X11 setups).
+ *   --license=KEY           activate this licence key at startup (signed key or
+ *                           Lemon Squeezy key; the latter needs internet once).
+ *   --license-window        open the licence window at startup.
  */
 
 export interface CliOptions {
@@ -36,6 +39,9 @@ export interface CliOptions {
   verbose: boolean;
   rendererUrl: string | null;
   linuxTransparentVisuals: boolean;
+  /** Licence key to activate at startup, or null. */
+  license: string | null;
+  licenseWindow: boolean;
 }
 
 export const DEFAULT_CLI: Readonly<CliOptions> = Object.freeze({
@@ -52,6 +58,8 @@ export const DEFAULT_CLI: Readonly<CliOptions> = Object.freeze({
   verbose: false,
   rendererUrl: null,
   linuxTransparentVisuals: false,
+  license: null,
+  licenseWindow: false,
 });
 
 function clampNumber(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -112,6 +120,12 @@ export function parseCli(argv: readonly string[]): CliOptions {
         break;
       case 'linux-transparent-visuals':
         out.linuxTransparentVisuals = true;
+        break;
+      case 'license':
+        out.license = value && value.trim().length > 0 ? value.trim() : null;
+        break;
+      case 'license-window':
+        out.licenseWindow = true;
         break;
       default:
         break;

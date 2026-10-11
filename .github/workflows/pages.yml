@@ -1,0 +1,58 @@
+name: Website
+
+# Publishes dist/web (landing page + in-browser WebGL demo) to GitHub Pages.
+# Enable Pages with source "GitHub Actions" in the repository settings, then
+# push to the default branch or run this workflow manually. Repository
+# variables PRAJEALA_BUY_URL / PRAJEALA_PRICE / PRAJEALA_DOWNLOAD_URL fill the
+# buy button, price and download links (see scripts/build-web.mjs).
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'web/**'
+      - 'src/renderer/**'
+      - 'src/shared/**'
+      - 'scripts/build.mjs'
+      - 'scripts/build-web.mjs'
+      - 'assets/icon-256.png'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+        env:
+          PRAJEALA_BUY_URL: ${{ vars.PRAJEALA_BUY_URL }}
+          PRAJEALA_PRICE: ${{ vars.PRAJEALA_PRICE }}
+          PRAJEALA_DOWNLOAD_URL: ${{ vars.PRAJEALA_DOWNLOAD_URL }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

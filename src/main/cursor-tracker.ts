@@ -13,8 +13,9 @@
  * polling only.
  */
 import { screen } from 'electron';
-import type { PointerButton } from '../shared/ipc';
+import type { KeyKind, PointerButton } from '../shared/ipc';
 import type { Point } from './geometry';
+import { classifyKeycode } from './keys';
 import { createLogger } from './log';
 
 const log = createLogger('cursor');
@@ -25,8 +26,12 @@ interface UiohookMouseEvent {
   y: number;
   button: unknown;
 }
+interface UiohookKeyboardEvent {
+  keycode: number;
+}
 interface UiohookLike {
   on(event: 'mousemove' | 'mousedown' | 'mouseup', listener: (e: UiohookMouseEvent) => void): unknown;
+  on(event: 'keydown', listener: (e: UiohookKeyboardEvent) => void): unknown;
   removeAllListeners?(event?: string): unknown;
   start(): void;
   stop(): void;
@@ -44,10 +49,17 @@ export interface CursorTrackerOptions {
   hooks: boolean;
   onMove(sample: CursorSample): void;
   onButton(sample: CursorSample, button: PointerButton, type: 'down' | 'up'): void;
+  /**
+   * A key went down. Only its coarse kind is passed on; the keycode never
+   * leaves the hook callback. Optional so older callers keep working.
+   */
+  onKey?(kind: KeyKind, t: number): void;
 }
 
 /** Minimum spacing between two hook-triggered samples (1000 Hz mice would otherwise flood IPC). */
 const MIN_HOOK_INTERVAL_MS = 2;
+/** Key events above this rate are dropped (auto-repeat, macros): the effect saturates anyway. */
+const MAX_KEYS_PER_SECOND = 40;
 
 export class CursorTracker {
   private timer: NodeJS.Timeout | null = null;
@@ -56,12 +68,19 @@ export class CursorTracker {
   private hook: UiohookLike | null = null;
   private hookStarted = false;
   private running = false;
+  private keyWindowStart = 0;
+  private keysInWindow = 0;
 
   constructor(private readonly options: CursorTrackerOptions) {}
 
   /** True when global mouse buttons are delivered (uiohook running). */
   get globalClicks(): boolean {
     return this.hookStarted;
+  }
+
+  /** True when global keystrokes are delivered (same hook as the buttons). */
+  get globalKeys(): boolean {
+    return this.hookStarted && typeof this.options.onKey === 'function';
   }
 
   start(): void {
@@ -126,6 +145,7 @@ export class CursorTracker {
       hook.on('mousemove', () => this.sample(true));
       hook.on('mousedown', (e) => this.onButton(e, 'down'));
       hook.on('mouseup', (e) => this.onButton(e, 'up'));
+      if (this.options.onKey) hook.on('keydown', (e) => this.onKeyDown(e));
       hook.start();
       this.hook = hook;
       this.hookStarted = true;
@@ -154,6 +174,18 @@ export class CursorTracker {
     } catch (err) {
       log.debug('uiohook stop failed:', err);
     }
+  }
+
+  /** Classifies and forwards a keystroke; the keycode is dropped right here. */
+  private onKeyDown(e: UiohookKeyboardEvent): void {
+    if (!this.running || !this.options.onKey) return;
+    const now = performance.now();
+    if (now - this.keyWindowStart > 1000) {
+      this.keyWindowStart = now;
+      this.keysInWindow = 0;
+    }
+    if (++this.keysInWindow > MAX_KEYS_PER_SECOND) return;
+    this.options.onKey(classifyKeycode(e?.keycode), now);
   }
 
   private onButton(e: UiohookMouseEvent, type: 'down' | 'up'): void {

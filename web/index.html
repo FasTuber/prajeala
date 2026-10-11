@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prăjeală — foc pe ecran</title>
+    <meta name="description" content="Prăjeală: overlay transparent cu foc simulat pe GPU, deasupra tuturor aplicațiilor — pe cursor, pe fereastra activă, pe tot ecranul. Windows, macOS, Linux." />
+    <meta property="og:title" content="Prăjeală — foc pe ecran" />
+    <meta property="og:description" content="Fire on your screen, on your apps and around your cursor. Free download, Pro unlocks everything." />
+    <meta property="og:image" content="icon-256.png" />
+    <link rel="icon" href="icon-256.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f0c0b;
+        --panel: rgba(31, 25, 21, 0.72);
+        --text: #f5ebdd;
+        --muted: #b7a897;
+        --accent: #ff7a1a;
+        --accent-2: #ffb347;
+        --line: rgba(255, 140, 40, 0.28);
+        --ok: #8be07a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, Inter, sans-serif;
+      }
+      a {
+        color: var(--accent-2);
+      }
+      .hero {
+        position: relative;
+        min-height: 92vh;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .hero iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #1c1f26;
+      }
+      .hero-copy {
+        position: relative;
+        text-align: center;
+        padding: 48px 20px 24px;
+        max-width: 760px;
+        pointer-events: none;
+        background: radial-gradient(ellipse at center, rgba(15, 12, 11, 0.72) 0%, rgba(15, 12, 11, 0.35) 55%, transparent 75%);
+      }
+      .hero-copy > * {
+        pointer-events: auto;
+      }
+      .hero h1 {
+        font-size: clamp(44px, 9vw, 96px);
+        margin: 0;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        text-shadow: 0 2px 24px rgba(0, 0, 0, 0.7);
+      }
+      .hero h1 span {
+        background: linear-gradient(90deg, #ffd27a, #ff7a1a 55%, #ff3d00);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .tagline {
+        font-size: clamp(18px, 2.6vw, 24px);
+        margin: 14px 0 6px;
+        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.8);
+      }
+      .tagline small {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78em;
+      }
+      .cta {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin: 22px 0 0;
+      }
+      .btn {
+        appearance: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        padding: 12px 20px;
+        border-radius: 999px;
+        font: inherit;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        backdrop-filter: blur(8px);
+      }
+      .btn.primary {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        color: #1a0e05;
+        border-color: transparent;
+      }
+      .btn:hover {
+        filter: brightness(1.08);
+      }
+      .hint {
+        position: absolute;
+        bottom: 14px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        color: var(--muted);
+        font-size: 13px;
+        text-shadow: 0 1px 8px #000;
+      }
+      /* demo controls */
+      .controls {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px;
+        border-radius: 14px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        backdrop-filter: blur(10px);
+        max-width: calc(100% - 24px);
+      }
+      .controls .group {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        padding: 0 4px;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .controls .group:last-child {
+        border-right: 0;
+      }
+      .controls label {
+        color: var(--muted);
+        font-size: 12px;
+        margin-right: 2px;
+      }
+      .chip {
+        appearance: none;
+        border: 1px solid transparent;
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        padding: 5px 10px;
+        border-radius: 999px;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .chip[aria-pressed='true'] {
+        background: var(--accent);
+        color: #1a0e05;
+        font-weight: 650;
+      }
+      .chip .sw {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: -1px;
+      }
+      section {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 56px 20px;
+      }
+      h2 {
+        font-size: clamp(26px, 4vw, 36px);
+        margin: 0 0 18px;
+        letter-spacing: -0.01em;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 17px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .card .emoji {
+        font-size: 26px;
+        margin-bottom: 6px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+      }
+      th,
+      td {
+        padding: 12px 14px;
+        text-align: left;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 14px;
+      }
+      td.yes {
+        color: var(--ok);
+      }
+      td.no {
+        color: var(--muted);
+      }
+      .price {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-top: 22px;
+        align-items: center;
+      }
+      .price .big {
+        font-size: 34px;
+        font-weight: 700;
+      }
+      .price .big small {
+        font-size: 15px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .downloads {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      code {
+        background: rgba(255, 255, 255, 0.07);
+        padding: 1px 6px;
+        border-radius: 6px;
+        font-size: 0.92em;
+      }
+      pre {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        overflow: auto;
+      }
+      footer {
+        text-align: center;
+        color: var(--muted);
+        padding: 30px 20px 50px;
+        font-size: 14px;
+      }
+      .lang {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        z-index: 2;
+      }
+      [data-lang='en'] .ro,
+      [data-lang='ro'] .en {
+        display: none;
+      }
+      @media (max-width: 700px) {
+        .controls {
+          top: auto;
+          bottom: 40px;
+          font-size: 12px;
+        }
+        .hint {
+          display: none;
+        }
+        .lang {
+          top: 8px;
+          right: 8px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .hero iframe {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body data-lang="ro">
+    <header class="hero">
+      <iframe id="demo" title="Prăjeală live demo" src="renderer/index.html?synthetic=1&amp;bottom=1&amp;intensity=high&amp;warmup=60" allow="autoplay"></iframe>
+      <button class="btn lang" id="lang" type="button">EN</button>
+      <div class="controls" id="controls">
+        <div class="group">
+          <label class="ro">Temă</label><label class="en">Theme</label>
+          <button class="chip" data-palette="classic" aria-pressed="true"><span class="sw" style="background:#ff7a1a"></span>Classic</button>
+          <button class="chip" data-palette="blue"><span class="sw" style="background:#3f8cff"></span>Blue</button>
+          <button class="chip" data-palette="green"><span class="sw" style="background:#5fe07a"></span>Green</button>
+          <button class="chip" data-palette="plasma"><span class="sw" style="background:#e04ad8"></span>Plasma</button>
+          <button class="chip" data-palette="ember"><span class="sw" style="background:#d8601a"></span>Ember</button>
+          <button class="chip" data-palette="ice"><span class="sw" style="background:#8fd8ff"></span>Ice</button>
+          <button class="chip" data-palette="electric"><span class="sw" style="background:#b7c6ff"></span>Electric</button>
+          <button class="chip" data-palette="neon"><span class="sw" style="background:#ff4ad0"></span>Neon</button>
+        </div>
+        <div class="group">
+          <label class="ro">Intensitate</label><label class="en">Intensity</label>
+          <button class="chip" data-intensity="low">Low</button>
+          <button class="chip" data-intensity="medium">Medium</button>
+          <button class="chip" data-intensity="high" aria-pressed="true">High</button>
+          <button class="chip" data-intensity="inferno">Inferno</button>
+        </div>
+        <div class="group">
+          <button class="chip" data-toggle="screenBottomFire" aria-pressed="true"><span class="ro">Baza ecranului</span><span class="en">Screen bottom</span></button>
+          <button class="chip" data-toggle="burnActiveWindow"><span class="ro">Fereastră</span><span class="en">Window</span></button>
+          <button class="chip" data-sim="audio"><span class="ro">Sunet</span><span class="en">Sound</span></button>
+          <button class="chip" data-sim="typing"><span class="ro">Tastare</span><span class="en">Typing</span></button>
+          <button class="chip" data-burst><span class="ro">Explozie</span><span class="en">Burst</span></button>
+        </div>
+      </div>
+      <div class="hero-copy">
+        <h1><span>Prăjeală</span></h1>
+        <p class="tagline ro">Foc pe ecran, pe aplicații și pe cursor.<small>Overlay transparent, click-through, simulare de fluid pe GPU. Windows · macOS · Linux.</small></p>
+        <p class="tagline en">Fire on your screen, on your apps and around your cursor.<small>Transparent click-through overlay with a GPU fluid simulation. Windows · macOS · Linux.</small></p>
+        <div class="cta">
+          <a class="btn primary" id="buy" href="%BUY_URL%" rel="noopener"><span class="ro">Cumpără Pro</span><span class="en">Buy Pro</span> · <span id="price">%PRICE%</span></a>
+          <a class="btn" href="%DOWNLOAD_URL%" rel="noopener"><span class="ro">Descarcă gratuit</span><span class="en">Download free</span></a>
+        </div>
+      </div>
+      <p class="hint ro">Mișcă mouse-ul prin foc · click = explozie · demo-ul rulează chiar în browser (WebGL2)</p>
+      <p class="hint en">Move your mouse through the fire · click to burst · this demo runs right here in your browser (WebGL2)</p>
+    </header>
+
+    <section>
+      <h2 class="ro">Ce face</h2>
+      <h2 class="en">What it does</h2>
+      <div class="grid">
+        <div class="card"><div class="emoji">🖱️</div><h3 class="ro">Cursorul arde</h3><h3 class="en">Your cursor burns</h3><p class="ro">Halo, coadă sau „cometă” proporțională cu viteza; mișcarea trage fluidul după ea, click-urile fac explozii.</p><p class="en">Halo, trail or a speed-scaled comet; the motion drags the fluid along, clicks explode.</p></div>
+        <div class="card"><div class="emoji">🪟</div><h3 class="ro">Fereastra activă ia foc</h3><h3 class="en">The focused window catches fire</h3><p class="ro">Flăcări care ies din bara de titlu și ling laturile aplicației în care lucrezi.</p><p class="en">Flames rising from the title bar and licking the sides of the app you work in.</p></div>
+        <div class="card"><div class="emoji">🎵</div><h3 class="ro">Reacție la sunet</h3><h3 class="en">Sound reactive</h3><p class="ro">Microfon sau audio de sistem: bass-ul umflă focul, beat-urile îl fac să sară. Nimic nu se înregistrează.</p><p class="en">Microphone or system audio: bass swells the fire, beats make it jump. Nothing is recorded.</p></div>
+        <div class="card"><div class="emoji">⌨️</div><h3 class="ro">Foc la tastare</h3><h3 class="en">Typing fire</h3><p class="ro">Scântei la fiecare tastă, combo când tastezi repede. Aplicația vede doar <em>că</em> ai apăsat o tastă, nu care.</p><p class="en">Sparks on every keystroke, a combo when you type fast. The app only sees <em>that</em> a key was pressed, never which.</p></div>
+        <div class="card"><div class="emoji">🎨</div><h3 class="ro">8 teme + ale tale</h3><h3 class="en">8 themes + your own</h3><p class="ro">Classic, Blue, Green, Plasma, Ember, Ice, Electric, Neon. Exportă, editează JSON-ul, importă.</p><p class="en">Classic, Blue, Green, Plasma, Ember, Ice, Electric, Neon. Export, edit the JSON, import it back.</p></div>
+        <div class="card"><div class="emoji">🪶</div><h3 class="ro">Ușor și discret</h3><h3 class="en">Light and out of the way</h3><p class="ro">Stă în tray, scurtături globale, limită de FPS, calitate reglabilă. Pauză cu Ctrl/Cmd+Shift+F.</p><p class="en">Lives in the tray, global shortcuts, FPS cap, adjustable quality. Pause with Ctrl/Cmd+Shift+F.</p></div>
+      </div>
+    </section>
+
+    <section id="pro">
+      <h2 class="ro">Free vs Pro</h2>
+      <h2 class="en">Free vs Pro</h2>
+      <table>
+        <thead><tr><th></th><th>Free</th><th>Pro</th></tr></thead>
+        <tbody>
+          <tr><td class="ro">Foc pe cursor, explozii la click, foc la baza ecranului, scântei</td><td class="en">Cursor fire, click bursts, screen-bottom fire, sparks</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td class="ro">Teme</td><td class="en">Themes</td><td class="no">Classic</td><td class="yes"><span class="ro">toate 8 + teme importate</span><span class="en">all 8 + imported themes</span></td></tr>
+          <tr><td class="ro">Intensitate</td><td class="en">Intensity</td><td class="no"><span class="ro">până la Medium</span><span class="en">up to Medium</span></td><td class="yes"><span class="ro">până la Inferno</span><span class="en">up to Inferno</span></td></tr>
+          <tr><td class="ro">Foc pe fereastra activă</td><td class="en">Fire on the active window</td><td class="no">–</td><td class="yes">✓</td></tr>
+          <tr><td class="ro">Reacție la sunet</td><td class="en">Sound reactivity</td><td class="no">–</td><td class="yes">✓</td></tr>
+          <tr><td class="ro">Foc la tastare</td><td class="en">Typing fire</td><td class="no">–</td><td class="yes">✓</td></tr>
+          <tr><td class="ro">Licență</td><td class="en">Licence</td><td class="no">–</td><td class="yes"><span class="ro">o singură plată, verificare offline</span><span class="en">one-time purchase, offline verification</span></td></tr>
+        </tbody>
+      </table>
+      <div class="price">
+        <div class="big">%PRICE% <small class="ro">· plată unică · 3 calculatoare</small><small class="en">· one-time · 3 computers</small></div>
+        <a class="btn primary" href="%BUY_URL%" rel="noopener"><span class="ro">Cumpără Pro pe Lemon Squeezy</span><span class="en">Buy Pro on Lemon Squeezy</span></a>
+      </div>
+      <p class="ro" style="color: var(--muted); margin-top: 14px">Primești cheia pe e-mail; o lipești în fereastra de licență (tray → Licence). Cheile semnate merg complet offline; cheile Lemon Squeezy au nevoie de internet o dată, la activare.</p>
+      <p class="en" style="color: var(--muted); margin-top: 14px">The key arrives by e-mail; paste it into the licence window (tray → Licence). Signed keys work fully offline; Lemon Squeezy keys need the network once, to activate.</p>
+    </section>
+
+    <section id="download">
+      <h2 class="ro">Descarcă</h2>
+      <h2 class="en">Download</h2>
+      <div class="downloads">
+        <a class="btn" href="%DOWNLOAD_URL%" rel="noopener">Windows (.exe)</a>
+        <a class="btn" href="%DOWNLOAD_URL%" rel="noopener">macOS (.dmg)</a>
+        <a class="btn" href="%DOWNLOAD_URL%" rel="noopener">Linux (AppImage / .deb)</a>
+        <a class="btn" href="https://github.com/FasTuber/prajeala" rel="noopener">GitHub</a>
+      </div>
+      <p class="ro" style="color: var(--muted)">Sau din surse (Node ≥ 22):</p>
+      <p class="en" style="color: var(--muted)">Or from source (Node ≥ 22):</p>
+      <pre>git clone https://github.com/FasTuber/prajeala.git
+cd prajeala &amp;&amp; npm install &amp;&amp; npm start</pre>
+      <p class="ro" style="color: var(--muted); font-size: 14px">macOS: exploziile la click și focul la tastare cer permisiunea Accessibility, titlurile ferestrelor cer Screen Recording, reacția la sunet cere Microphone. Linux: e nevoie de un compositor pentru ferestre transparente.</p>
+      <p class="en" style="color: var(--muted); font-size: 14px">macOS: click bursts and typing fire need the Accessibility permission, window titles need Screen Recording, sound reactivity needs Microphone. Linux: a compositor is required for transparent windows.</p>
+    </section>
+
+    <footer>
+      <span class="ro">Prăjeală · cod sursă MIT · © 2026 Mihai Balan (FasTuber) · versiunea %VERSION%</span>
+      <span class="en">Prăjeală · MIT-licensed source · © 2026 Mihai Balan (FasTuber) · version %VERSION%</span>
+    </footer>
+    <script type="module" src="demo.js"></script>
+  </body>
+</html>

@@ -22,7 +22,7 @@ describe('DEFAULT_SETTINGS / SETTINGS_LIMITS', () => {
   });
 
   it('numeric defaults sit inside their limits', () => {
-    for (const key of ['simScale', 'maxFps', 'pressureIterations'] as const) {
+    for (const key of ['simScale', 'maxFps', 'pressureIterations', 'audioGain'] as const) {
       const { min, max } = SETTINGS_LIMITS[key];
       expect(min).toBeLessThan(max);
       expect(DEFAULT_SETTINGS[key]).toBeGreaterThanOrEqual(min);
@@ -77,6 +77,12 @@ describe('normalizeSettings', () => {
       pressureIterations: 20,
       launchAtLogin: true,
       showDebugHud: true,
+      licenseOnlineCheck: false,
+      audioReactive: true,
+      audioSource: 'system',
+      audioGain: 2,
+      themeId: 'lava-lamp',
+      typingFire: true,
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
@@ -90,6 +96,9 @@ describe('normalizeSettings', () => {
       'sparks',
       'launchAtLogin',
       'showDebugHud',
+      'licenseOnlineCheck',
+      'audioReactive',
+      'typingFire',
     ] as const;
 
     it.each(boolKeys)('%s accepts true/false and falls back to the default otherwise', (key) => {
@@ -117,6 +126,20 @@ describe('normalizeSettings', () => {
       expect(normalizeSettings({ palette: 'rainbow' }).palette).toBe('classic');
       expect(normalizeSettings({ cursorMode: 'laser' }).cursorMode).toBe('comet');
     });
+
+    it('audioSource accepts microphone/system only', () => {
+      expect(normalizeSettings({ audioSource: 'system' }).audioSource).toBe('system');
+      expect(normalizeSettings({ audioSource: 'microphone' }).audioSource).toBe('microphone');
+      expect(normalizeSettings({ audioSource: 'line-in' }).audioSource).toBe(DEFAULT_SETTINGS.audioSource);
+    });
+  });
+
+  it('clamps audioGain and keeps the default at 1', () => {
+    expect(DEFAULT_SETTINGS.audioGain).toBe(1);
+    expect(normalizeSettings({ audioGain: 0 }).audioGain).toBe(SETTINGS_LIMITS.audioGain.min);
+    expect(normalizeSettings({ audioGain: 99 }).audioGain).toBe(SETTINGS_LIMITS.audioGain.max);
+    expect(normalizeSettings({ audioGain: '2' }).audioGain).toBe(2);
+    expect(normalizeSettings({ audioGain: 'loud' }).audioGain).toBe(1);
   });
 
   describe('numbers', () => {

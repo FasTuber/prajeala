@@ -57,7 +57,7 @@ export class BurstEmitter implements Emitter {
       const frame = 60 * ctx.dt; // impulses are spread over ~12 frames at 60 fps
       const heat = s * 0.5 * k * k * frame * 0.35;
       const radial = ctx.height * s * 0.12 * k * sc * frame;
-      ctx.splat(x, y, r, heat, heat * 0.25, 0, -ctx.height * 0.05 * s * frame, radial);
+      ctx.splat(x, y, r, heat, heat * 0.25, 0, ctx.lift(0.05 * s * frame), radial);
       // hot core
       ctx.splat(x, y, r * 0.45, heat * 1.4, 0, 0, 0, 0);
       this.age[i] = age + ctx.dt;

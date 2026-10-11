@@ -11,7 +11,11 @@ function boot(): void {
   const bridge: unknown = (window as { prajeala?: unknown }).prajeala;
   const hasBridge = typeof bridge === 'object' && bridge !== null && typeof (bridge as { getSettings?: unknown }).getSettings === 'function';
   const api = hasBridge ? window.prajeala : createMockApi(options);
-  if (!hasBridge) console.info('[prajeala] no preload bridge found: using the in-page mock API (dev keys: 1-4 p c b w s h space esc)');
+  if (!hasBridge) {
+    console.info('[prajeala] no preload bridge found: using the in-page mock API (dev keys: 1-4 p c b w s m k h space esc)');
+    // Lets an embedding page (the website demo) drive the mock: window.prajealaDemo.updateSettings({...}).
+    (window as unknown as { prajealaDemo?: unknown }).prajealaDemo = api;
+  }
 
   const canvas = document.getElementById('fire');
   if (!(canvas instanceof HTMLCanvasElement)) {

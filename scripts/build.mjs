@@ -3,7 +3,7 @@
 //   node scripts/build.mjs          one-shot build
 //   node scripts/build.mjs --watch  rebuild on change
 import { build, context } from 'esbuild';
-import { cpSync, mkdirSync, existsSync } from 'node:fs';
+import { cpSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +13,28 @@ const production = process.argv.includes('--production') || process.env.NODE_ENV
 
 /** Native / runtime modules that must never be bundled. */
 const nodeExternals = ['electron', 'uiohook-napi', 'get-windows'];
+
+/**
+ * Licensing configuration baked into the main bundle (see src/main/license-config.ts).
+ * Environment variables win; the Ed25519 public key may also live in the git-ignored
+ * `license/public.key` written by `npm run license:keygen`.
+ */
+function licenseBuildConfig() {
+  let publicKey = (process.env.PRAJEALA_LICENSE_PUBLIC_KEY ?? '').trim();
+  const keyFile = resolve(root, 'license/public.key');
+  if (!publicKey && existsSync(keyFile)) publicKey = readFileSync(keyFile, 'utf8').trim();
+  if (!/^[0-9a-fA-F]{64}$/.test(publicKey)) {
+    if (publicKey) console.warn('[build] PRAJEALA_LICENSE_PUBLIC_KEY is not 64 hex chars; ignoring it');
+    else if (!watch) console.warn('[build] no licence public key configured: signed licence keys will be rejected (see README › Pro)');
+    publicKey = '';
+  }
+  return {
+    licensePublicKey: publicKey.toLowerCase(),
+    lsStoreId: Number(process.env.PRAJEALA_LS_STORE_ID ?? 0) || 0,
+    lsProductId: Number(process.env.PRAJEALA_LS_PRODUCT_ID ?? 0) || 0,
+    buyUrl: (process.env.PRAJEALA_BUY_URL ?? '').trim(),
+  };
+}
 
 /** @type {import('esbuild').BuildOptions} */
 const common = {
@@ -24,6 +46,7 @@ const common = {
   legalComments: 'none',
   define: {
     'process.env.NODE_ENV': JSON.stringify(production ? 'production' : 'development'),
+    __PRAJEALA_BUILD__: JSON.stringify(licenseBuildConfig()),
   },
 };
 
@@ -60,13 +83,22 @@ const targets = [
     target: 'chrome134',
     loader: { '.glsl': 'text', '.frag': 'text', '.vert': 'text' },
   },
+  {
+    ...common,
+    entryPoints: ['src/renderer/license/main.ts'],
+    outfile: 'dist/renderer/license.js',
+    platform: 'browser',
+    format: 'esm',
+    target: 'chrome134',
+  },
 ];
 
 function copyStatic() {
   mkdirSync(resolve(root, 'dist/renderer'), { recursive: true });
-  cpSync(resolve(root, 'src/renderer/index.html'), resolve(root, 'dist/renderer/index.html'));
-  const settingsHtml = resolve(root, 'src/renderer/settings.html');
-  if (existsSync(settingsHtml)) cpSync(settingsHtml, resolve(root, 'dist/renderer/settings.html'));
+  for (const page of ['index.html', 'license.html', 'settings.html']) {
+    const src = resolve(root, 'src/renderer', page);
+    if (existsSync(src)) cpSync(src, resolve(root, 'dist/renderer', page));
+  }
 }
 
 if (watch) {

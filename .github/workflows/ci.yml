@@ -40,6 +40,9 @@ jobs:
       - name: Icons are up to date
         run: node scripts/gen-icons.mjs --check
 
+      - name: Website builds
+        run: node scripts/build-web.mjs
+
       - name: Install Electron runtime libraries + Xvfb
         # Ubuntu 24.04 renamed several libs with a "t64" suffix and dropped the
         # old names, so try the new name first and fall back to the old one.
@@ -80,6 +83,11 @@ jobs:
     env:
       # Unsigned builds: do not look for a signing identity on macOS.
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # Licensing (see README › Pro). Missing secrets/vars → the build warns and only raw Lemon Squeezy keys work.
+      PRAJEALA_LICENSE_PUBLIC_KEY: ${{ secrets.PRAJEALA_LICENSE_PUBLIC_KEY }}
+      PRAJEALA_LS_STORE_ID: ${{ vars.PRAJEALA_LS_STORE_ID }}
+      PRAJEALA_LS_PRODUCT_ID: ${{ vars.PRAJEALA_LS_PRODUCT_ID }}
+      PRAJEALA_BUY_URL: ${{ vars.PRAJEALA_BUY_URL }}
     steps:
       - uses: actions/checkout@v5
 

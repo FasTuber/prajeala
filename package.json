@@ -18,8 +18,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:watch": "node scripts/build.mjs --watch",
+    "build:web": "node scripts/build.mjs && node scripts/build-web.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "icons:check": "node scripts/gen-icons.mjs --check",
+    "license:keygen": "node scripts/license-keygen.mjs",
+    "license:sign": "node scripts/license-sign.mjs",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron . --debug-hud",
     "typecheck": "tsc -p tsconfig.json --noEmit",

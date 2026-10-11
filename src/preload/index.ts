@@ -8,16 +8,20 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import {
   IPC,
   type ActiveWindowEvent,
+  type AudioStatus,
   type CursorEvent,
   type DisplayInfo,
   type HostCapabilities,
+  type KeyEvent,
   type PointerButtonEvent,
   type PrajealaApi,
   type RendererReadyReport,
   type RendererStats,
   type Unsubscribe,
 } from '../shared/ipc';
+import type { LicenseActionResult, LicenseInfo } from '../shared/license';
 import type { Settings } from '../shared/settings';
+import type { ThemeDefinition } from '../shared/theme';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_event: IpcRendererEvent, payload: T): void => {
@@ -38,8 +42,20 @@ const api: PrajealaApi = {
   getCapabilities: () => ipcRenderer.invoke(IPC.getCapabilities) as Promise<HostCapabilities>,
   updateSettings: (patch: Partial<Settings>) => ipcRenderer.invoke(IPC.updateSettings, patch) as Promise<Settings>,
 
+  getTheme: () => ipcRenderer.invoke(IPC.getTheme) as Promise<ThemeDefinition>,
+  onTheme: (cb) => subscribe<ThemeDefinition>(IPC.theme, cb),
+
+  getLicense: () => ipcRenderer.invoke(IPC.getLicense) as Promise<LicenseInfo>,
+  activateLicense: (key: string) => ipcRenderer.invoke(IPC.activateLicense, String(key)) as Promise<LicenseActionResult>,
+  deactivateLicense: () => ipcRenderer.invoke(IPC.deactivateLicense) as Promise<LicenseActionResult>,
+  checkLicenseOnline: () => ipcRenderer.invoke(IPC.checkLicense) as Promise<LicenseActionResult>,
+  openBuyPage: () => ipcRenderer.invoke(IPC.openBuyPage) as Promise<void>,
+  closeLicenseWindow: () => ipcRenderer.invoke(IPC.closeLicenseWindow) as Promise<void>,
+  onLicense: (cb) => subscribe<LicenseInfo>(IPC.license, cb),
+
   onCursor: (cb) => subscribe<CursorEvent>(IPC.cursor, cb),
   onPointerButton: (cb) => subscribe<PointerButtonEvent>(IPC.pointerButton, cb),
+  onKey: (cb) => subscribe<KeyEvent>(IPC.key, cb),
   onActiveWindow: (cb) => subscribe<ActiveWindowEvent | null>(IPC.activeWindow, cb),
   onSettings: (cb) => subscribe<Settings>(IPC.settings, cb),
   onDisplay: (cb) => subscribe<DisplayInfo>(IPC.display, cb),
@@ -51,6 +67,9 @@ const api: PrajealaApi = {
   },
   reportStats: (stats: RendererStats) => {
     ipcRenderer.send(IPC.stats, stats);
+  },
+  reportAudioStatus: (status: AudioStatus) => {
+    ipcRenderer.send(IPC.audioStatus, status);
   },
   log: (level, message) => {
     ipcRenderer.send(IPC.log, { level, message: String(message) });

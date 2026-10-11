@@ -4,7 +4,7 @@
  * it can be unit-tested with Vitest.
  */
 
-export const PALETTES = ['classic', 'blue', 'green', 'plasma', 'ember'] as const;
+export const PALETTES = ['classic', 'blue', 'green', 'plasma', 'ember', 'ice', 'electric', 'neon'] as const;
 export type Palette = (typeof PALETTES)[number];
 
 export const INTENSITIES = ['low', 'medium', 'high', 'inferno'] as const;
@@ -12,6 +12,10 @@ export type Intensity = (typeof INTENSITIES)[number];
 
 export const CURSOR_MODES = ['off', 'halo', 'trail', 'comet'] as const;
 export type CursorMode = (typeof CURSOR_MODES)[number];
+
+/** Where sound reactivity listens: the microphone, or system audio (loopback) where the OS allows it. */
+export const AUDIO_SOURCES = ['microphone', 'system'] as const;
+export type AudioSource = (typeof AUDIO_SOURCES)[number];
 
 export interface Settings {
   /** Master switch. When false the overlays stay alive but render nothing. */
@@ -37,6 +41,23 @@ export interface Settings {
   launchAtLogin: boolean;
   /** Small on-screen diagnostics panel (fps, sim size, emitters). */
   showDebugHud: boolean;
+  /**
+   * Re-validate the licence key against Lemon Squeezy from time to time
+   * (refunds / revocations). Off = no network traffic except explicit actions.
+   */
+  licenseOnlineCheck: boolean;
+  /** Flames pulse with the music (microphone / system audio via getUserMedia). Pro. */
+  audioReactive: boolean;
+  audioSource: AudioSource;
+  /** Sensitivity multiplier for the audio analysis (0.25 … 4). */
+  audioGain: number;
+  /**
+   * Id of an imported theme (`<userData>/themes/<id>.json`) that overrides
+   * `palette`; '' = use the built-in palette. Pro.
+   */
+  themeId: string;
+  /** Sparks and heat puffs on every keystroke (requires uiohook-napi). Pro. */
+  typingFire: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -53,12 +74,22 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   pressureIterations: 12,
   launchAtLogin: false,
   showDebugHud: false,
+  licenseOnlineCheck: true,
+  audioReactive: false,
+  audioSource: 'microphone',
+  audioGain: 1,
+  themeId: '',
+  typingFire: false,
 });
+
+/** Theme ids are file names: lower-case slugs, at most 64 chars. */
+export const THEME_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export const SETTINGS_LIMITS = Object.freeze({
   simScale: { min: 0.1, max: 1 },
   maxFps: { min: 15, max: 240 },
   pressureIterations: { min: 0, max: 64 },
+  audioGain: { min: 0.25, max: 4 },
 });
 
 /** Tunables that each intensity preset feeds into the simulation. */
@@ -178,6 +209,12 @@ export function normalizeSettings(input: unknown): Settings {
     ),
     launchAtLogin: pickBool(src.launchAtLogin, d.launchAtLogin),
     showDebugHud: pickBool(src.showDebugHud, d.showDebugHud),
+    licenseOnlineCheck: pickBool(src.licenseOnlineCheck, d.licenseOnlineCheck),
+    audioReactive: pickBool(src.audioReactive, d.audioReactive),
+    audioSource: pickEnum(src.audioSource, AUDIO_SOURCES, d.audioSource),
+    audioGain: pickNumber(src.audioGain, d.audioGain, L.audioGain.min, L.audioGain.max),
+    themeId: typeof src.themeId === 'string' && THEME_ID_RE.test(src.themeId) ? src.themeId : d.themeId,
+    typingFire: pickBool(src.typingFire, d.typingFire),
   };
 }
 

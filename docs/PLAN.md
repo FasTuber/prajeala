@@ -74,7 +74,24 @@ Electron (main, ESM)                      Renderer (WebGL2, per monitor)
 
 Contractul comun (`src/shared/*`) este scris înainte de pornirea agenților și nu se modifică fără sincronizare.
 
-## 4. Limitări cunoscute
+## 4. Etapa a doua: monetizare și funcții noi
+
+Reguli: contractul din `src/shared` rămâne compatibil (doar adăugiri), nicio dependență nativă nouă fără
+fallback, fiecare funcție nouă are comutator în tray și setare persistată, README + teste actualizate,
+toate verificările (`typecheck`, `lint`, `test`, `build`, `smoke`) trec înainte de fiecare commit.
+
+| # | Etapă | Design pe scurt |
+|---|-------|-----------------|
+| 1 | **Free / Pro cu licență Lemon Squeezy** | `src/shared/license.ts` (pur): nivel `free`/`pro`, limitele Free (`classic`, intensitate ≤ `medium`, fără foc pe ferestre), `applyTierLimits()` calculează setările *efective* trimise renderer-ului. Două formate de cheie: (a) **cheie semnată** `PRAJ1.<payload>.<semnătură Ed25519>` emisă de vânzător (`npm run license:sign`) și verificată **offline** cu cheia publică compilată în aplicație; (b) **cheie brută Lemon Squeezy** (UUID) care cere o activare online (`/v1/licenses/activate`) și se re-verifică periodic. Licența se salvează în `userData/prajeala-license.json`. Verificarea online e opțională (setare `licenseOnlineCheck`, comutator în tray); fără rețea se păstrează ultima stare. Introducerea cheii: fereastră mică `license.html`, clipboard sau `--license=KEY`. |
+| 2 | **Reacție la sunet** | `getUserMedia` (microfon sau, unde există, loopback de sistem) în renderer → `AnalyserNode` → nivele bass/mid/high + detecție de beat → modulează căldura, flotabilitatea și scânteile. Permisiuni acordate din main (`setPermissionRequestHandler`, `askForMediaAccess` pe macOS). Setări `audioReactive`, `audioSource`; starea raportată către tray. Mock: `?audio=sim`. |
+| 3 | **Teme noi + format JSON** | Palete `ice`, `electric`, `neon` + parametri de simulare per temă (flotabilitate, vârtej, răcire, glow, detaliu). `src/shared/theme.ts`: `ThemeDefinition` validat, export/import JSON (`prajeala-theme` v1). Temele importate stau în `userData/themes/`, se aleg din tray, iar renderer-ul primește tema rezolvată prin IPC. |
+| 4 | **Foc la tastare** | `uiohook-napi` (deja opțional) livrează `keydown`; main trimite doar o *categorie* (literă/spațiu/enter/ștergere/modificator), niciodată codul tastei. Renderer: scântei + puf de căldură la cursor. Setare `typingFire`. |
+| 5 | **Pagină web** | `web/` — landing de o pagină cu demo WebGL live (renderer-ul în mod mock), Free vs Pro și buton de cumpărare Lemon Squeezy; build în `dist/web`, publicabil pe GitHub Pages. |
+
+Nivelul Pro deblochează tot; Free rămâne o demonstrație completă a focului clasic. Limitele stau într-un
+singur loc (`FREE_LIMITS` în `src/shared/license.ts`), ca să poată fi schimbate fără să atingi restul codului.
+
+## 5. Limitări cunoscute
 - Cursorul de sistem nu poate fi ascuns/înlocuit global dintr-un overlay (ar necesita drivere sau setări de OS); focul se desenează **în jurul** cursorului, deasupra tuturor aplicațiilor.
 - Pe macOS, `uiohook-napi` cere permisiunea Accessibility pentru click-uri globale; `get-windows` cere Screen Recording pentru titluri.
 - Pe Linux e nevoie de un compositor (Wayland/X11 cu compoziție) pentru transparență.

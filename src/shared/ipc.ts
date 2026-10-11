@@ -9,7 +9,11 @@
  * i.e. `local = global - display.bounds.{x,y}`. Global screen coordinates are
  * included for debugging and for cross-display effects.
  */
-import type { Settings } from './settings';
+import type { LicenseActionResult, LicenseInfo } from './license';
+import type { AudioSource, Settings } from './settings';
+import type { ThemeDefinition } from './theme';
+
+export type { AudioSource };
 
 export interface Rect {
   x: number;
@@ -58,6 +62,18 @@ export interface PointerButtonEvent {
   t: number;
 }
 
+/**
+ * Coarse class of a pressed key. Deliberately lossy: the renderer must never
+ * learn WHICH letter was typed, only that one was.
+ */
+export type KeyKind = 'char' | 'space' | 'enter' | 'backspace' | 'modifier' | 'navigation' | 'other';
+
+export interface KeyEvent {
+  kind: KeyKind;
+  /** Milliseconds since app start (main-process clock). */
+  t: number;
+}
+
 export interface ActiveWindowEvent {
   /** Window title (may be empty when the OS refuses to disclose it). */
   title: string;
@@ -101,6 +117,18 @@ export interface HostCapabilities {
   activeWindow: boolean;
   platform: 'win32' | 'darwin' | 'linux' | string;
   smoke: boolean;
+  /** System-audio (loopback) capture can be served by the host (Windows). Optional for older hosts. */
+  audioLoopback?: boolean;
+  /** Global keystrokes are delivered (uiohook running) → typing fire possible. */
+  globalKeys?: boolean;
+}
+
+/** Sound-reactivity state reported by a renderer (shown in the tray). */
+export interface AudioStatus {
+  state: 'off' | 'starting' | 'active' | 'denied' | 'unavailable' | 'error';
+  /** Source actually in use (may differ from the setting after a fallback). */
+  source: AudioSource;
+  message?: string;
 }
 
 /** Channel names. Keep them in one place so main/preload/renderer never drift. */
@@ -108,23 +136,37 @@ export const IPC = {
   // main → renderer (send)
   cursor: 'prajeala:cursor',
   pointerButton: 'prajeala:pointer-button',
+  /** A key was pressed (kind only, never the key itself). */
+  key: 'prajeala:key',
   activeWindow: 'prajeala:active-window',
   settings: 'prajeala:settings',
   display: 'prajeala:display',
   capabilities: 'prajeala:capabilities',
   /** Ask the renderer to emit a one-off burst at local coordinates (used by tray "test" and smoke). */
   testBurst: 'prajeala:test-burst',
+  /** Licence snapshot (tier, status); sent to overlays and the licence window. */
+  license: 'prajeala:license',
+  /** Resolved theme (built-in palette or imported JSON) the overlays should render with. */
+  theme: 'prajeala:theme',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
   stats: 'prajeala:stats',
   log: 'prajeala:log',
+  audioStatus: 'prajeala:audio-status',
 
   // renderer → main (invoke)
   getSettings: 'prajeala:get-settings',
   getDisplay: 'prajeala:get-display',
   getCapabilities: 'prajeala:get-capabilities',
   updateSettings: 'prajeala:update-settings',
+  getTheme: 'prajeala:get-theme',
+  getLicense: 'prajeala:get-license',
+  activateLicense: 'prajeala:activate-license',
+  deactivateLicense: 'prajeala:deactivate-license',
+  checkLicense: 'prajeala:check-license',
+  openBuyPage: 'prajeala:open-buy-page',
+  closeLicenseWindow: 'prajeala:close-license-window',
 } as const;
 
 export type Unsubscribe = () => void;
@@ -135,9 +177,26 @@ export interface PrajealaApi {
   getDisplay(): Promise<DisplayInfo>;
   getCapabilities(): Promise<HostCapabilities>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
+  /** The theme to render with (the host resolves settings.themeId / palette). */
+  getTheme(): Promise<ThemeDefinition>;
+  onTheme(cb: (theme: ThemeDefinition) => void): Unsubscribe;
+
+  // Licence (Free / Pro). Overlays only read; the licence window drives the actions.
+  getLicense(): Promise<LicenseInfo>;
+  /** Verifies (offline) / activates (Lemon Squeezy, online) a pasted key and stores it. */
+  activateLicense(key: string): Promise<LicenseActionResult>;
+  /** Forgets the stored key (and releases the Lemon Squeezy instance when online). */
+  deactivateLicense(): Promise<LicenseActionResult>;
+  /** Explicit online re-validation against Lemon Squeezy. */
+  checkLicenseOnline(): Promise<LicenseActionResult>;
+  openBuyPage(): Promise<void>;
+  /** Closes the licence window (no-op elsewhere). */
+  closeLicenseWindow(): Promise<void>;
+  onLicense(cb: (info: LicenseInfo) => void): Unsubscribe;
 
   onCursor(cb: (e: CursorEvent) => void): Unsubscribe;
   onPointerButton(cb: (e: PointerButtonEvent) => void): Unsubscribe;
+  onKey(cb: (e: KeyEvent) => void): Unsubscribe;
   onActiveWindow(cb: (e: ActiveWindowEvent | null) => void): Unsubscribe;
   onSettings(cb: (s: Settings) => void): Unsubscribe;
   onDisplay(cb: (d: DisplayInfo) => void): Unsubscribe;
@@ -146,6 +205,7 @@ export interface PrajealaApi {
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;
+  reportAudioStatus(status: AudioStatus): void;
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void;
 }
 

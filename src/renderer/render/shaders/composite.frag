@@ -9,14 +9,17 @@ uniform float uAspect;   // W/H
 uniform float uDetail;   // 0..1 noise erosion strength
 uniform float uGlow_;    // glow strength
 uniform float uSmoke;    // smoke opacity
+uniform vec3 uSmokeColor;
+uniform float uNoiseSpeed; // theme: how fast the detail noise scrolls (sign follows the flow)
 uniform int uView;       // debug: 0 normal, 1 heat, 2 smoke, 3 glow
 out vec4 outColor;
 
 void main() {
   vec2 p = vec2(vUv.x * uAspect, vUv.y);
-  // Two noise fields scrolling upward at different speeds: large tongues + fine licks.
-  float n1 = fbm(p * 5.0 + vec2(0.0, -uTime * 0.75));
-  float n2 = fbm(p * 12.0 + vec2(3.7, -uTime * 1.6));
+  // Two noise fields scrolling (upward for fire) at different speeds: large tongues + fine licks.
+  float ts = uTime * uNoiseSpeed;
+  float n1 = fbm(p * 5.0 + vec2(0.0, -ts * 0.75));
+  float n2 = fbm(p * 12.0 + vec2(3.7, -ts * 1.6));
 
   float heat0 = sampleTex(uTemperature, vUv).r;
   // Distort the field lookup so edges flicker instead of staying blobby.
@@ -46,7 +49,7 @@ void main() {
 
   // Faint smoke trailing the flames.
   float sa = uSmoke * smoothstep(0.02, 0.7, smoke) * (1.0 - alpha);
-  rgb += vec3(0.07, 0.06, 0.06) * sa;
+  rgb += uSmokeColor * sa;
   alpha += sa;
 
   rgb = min(rgb, vec3(1.0));

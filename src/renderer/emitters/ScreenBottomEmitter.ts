@@ -21,25 +21,31 @@ export class ScreenBottomEmitter implements Emitter {
     const count = Math.min(MAX_EMITTERS, Math.max(4, Math.ceil(ctx.width / (r * 1.2))));
     const step = ctx.width / count;
     const radius = r * 1.6;
-    const temperature = Math.min(1, 0.65 + preset.ambient * 0.5);
-    const baseY = H + r * 0.15;
+    const a = ctx.audio;
+    const temperature = Math.min(1, (0.65 + preset.ambient * 0.5) * ctx.audioBoost);
+    // Sinking themes (ice/water) drip from the top edge instead of burning up from the bottom.
+    const sinking = ctx.flow < 0;
+    const baseY = sinking ? -r * 0.15 : H + r * 0.15;
     for (let i = 0; i < count; i++) {
       const fl = flicker(t * 1.5 + i * 0.37, 500 + i);
       const slow = flicker(t * 0.35 + i * 0.11, 600 + i); // slow-moving hot spots
       const px = (i + 0.5) * step + (fl - 0.5) * step * 0.8;
-      const strength = (0.6 + 0.55 * fl) * (0.7 + 0.5 * slow);
-      const ay = -H * (0.6 + 1.4 * fl);
+      // With music: the mids ripple across the strip, beats lift the whole base.
+      const ripple = a.active ? 0.5 * a.mid * Math.sin(t * 6 + i * 0.9) + 0.6 * a.beat : 0;
+      const strength = (0.6 + 0.55 * fl) * (0.7 + 0.5 * slow) + ripple;
+      const ay = ctx.lift(0.6 + 1.4 * fl + (a.active ? 1.2 * a.bass : 0));
       const ax = (flicker(t * 0.9 + i * 0.5, 700 + i) - 0.5) * H * 1.0;
       ctx.splatSource(px, baseY, radius, temperature * Math.min(1, strength), 0.07 * strength, ax, ay);
     }
     if (ctx.settings.sparks) {
-      this.sparkAccumulator += (ctx.width / 160) * ctx.dt;
+      this.sparkAccumulator += (ctx.width / 160) * (1 + (a.active ? 3 * a.beat + a.high : 0)) * ctx.dt;
       const n = Math.floor(this.sparkAccumulator);
       if (n > 0) {
         this.sparkAccumulator -= n;
         const rng = ctx.sparks.random;
         for (let k = 0; k < n; k++) {
-          ctx.sparks.emit(rng.next() * ctx.width, H + 2, rng.range(-40, 40), rng.range(-260, -80), rng.range(0.7, 1.6));
+          if (sinking) ctx.sparks.emit(rng.next() * ctx.width, -2, rng.range(-40, 40), rng.range(40, 160), rng.range(0.7, 1.6));
+          else ctx.sparks.emit(rng.next() * ctx.width, H + 2, rng.range(-40, 40), rng.range(-260, -80), rng.range(0.7, 1.6));
         }
       }
     }
