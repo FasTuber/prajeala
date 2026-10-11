@@ -9,6 +9,9 @@
  * i.e. `local = global - display.bounds.{x,y}`. Global screen coordinates are
  * included for debugging and for cross-display effects.
  */
+import type { Lang } from './i18n';
+import type { LicenseActionResult, LicenseStatus } from './license';
+import type { ExternalLink } from './product';
 import type { Settings } from './settings';
 
 export interface Rect {
@@ -149,8 +152,60 @@ export interface PrajealaApi {
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void;
 }
 
+// ───────────────────────────── settings window ─────────────────────────────
+
+/** Everything the settings window renders. Pushed again after every change. */
+export interface UiState {
+  /** Stored settings (the user's choices, Pro ones included). */
+  settings: Settings;
+  /** What the overlays actually draw (Pro choices replaced when Pro is missing). */
+  effective: Settings;
+  license: LicenseStatus;
+  capabilities: HostCapabilities;
+  version: string;
+  platform: string;
+  /** Number of connected displays. */
+  displays: number;
+  lang: Lang;
+  product: { name: string; priceLabel: string; trialDays: number; hasSponsor: boolean };
+}
+
+/** Which part of the window to bring forward when it opens. */
+export type UiFocus = 'pro' | 'welcome' | null;
+
+export const UI_IPC = {
+  // window → main (invoke)
+  getState: 'prajeala-ui:get-state',
+  updateSettings: 'prajeala-ui:update-settings',
+  activate: 'prajeala-ui:activate',
+  deactivate: 'prajeala-ui:deactivate',
+  // window → main (send)
+  openLink: 'prajeala-ui:open-link',
+  openSettingsFile: 'prajeala-ui:open-settings-file',
+  testBurst: 'prajeala-ui:test-burst',
+  ready: 'prajeala-ui:ready',
+  // main → window
+  state: 'prajeala-ui:state',
+  focus: 'prajeala-ui:focus',
+} as const;
+
+/** API exposed to the settings window on `window.prajealaUi` (separate preload: overlays never see it). */
+export interface PrajealaUiApi {
+  getState(): Promise<UiState>;
+  updateSettings(patch: Partial<Settings>): Promise<UiState>;
+  activate(key: string): Promise<LicenseActionResult>;
+  deactivate(): Promise<LicenseActionResult>;
+  openLink(link: ExternalLink): void;
+  openSettingsFile(): void;
+  testBurst(): void;
+  reportReady(report: { ok: boolean; error?: string }): void;
+  onState(cb: (state: UiState) => void): Unsubscribe;
+  onFocus(cb: (focus: UiFocus) => void): Unsubscribe;
+}
+
 declare global {
   interface Window {
     prajeala: PrajealaApi;
+    prajealaUi: PrajealaUiApi;
   }
 }

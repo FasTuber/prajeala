@@ -53,6 +53,23 @@ const targets = [
   },
   {
     ...common,
+    entryPoints: ['src/preload/settings.ts'],
+    outfile: 'dist/preload/settings.cjs',
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['electron'],
+  },
+  {
+    ...common,
+    entryPoints: ['src/renderer/settings/main.ts'],
+    outfile: 'dist/renderer/settings.js',
+    platform: 'browser',
+    format: 'esm',
+    target: 'chrome134',
+  },
+  {
+    ...common,
     entryPoints: ['src/renderer/main.ts'],
     outfile: 'dist/renderer/main.js',
     platform: 'browser',

@@ -33,9 +33,12 @@ export interface OverlayContext {
   debugHud: boolean;
   /** Restrict to one display index. */
   displayIndex: number | null;
+  /** Settings the overlays draw with (already reduced to what the licence allows). */
   getSettings(): Settings;
   updateSettings(patch: unknown): Settings;
   getCapabilities(): HostCapabilities;
+  /** How many displays get an overlay (primary first); Infinity = all. */
+  maxDisplays(): number;
 }
 
 export interface Overlay {
@@ -186,11 +189,30 @@ export class OverlayManager extends EventEmitter {
     }));
   }
 
+  /** Displays that should have an overlay right now (primary first). */
+  private wantedDisplays(): DisplayInfo[] {
+    const infos = this.describeDisplays().filter((info) => this.ctx.displayIndex === null || info.index === this.ctx.displayIndex);
+    return infos.slice(0, Math.max(0, this.ctx.maxDisplays()));
+  }
+
+  /** Rebuilds only when the set of displays that should burn differs from the current one (licence changes). */
+  syncDisplays(reason: string): void {
+    if (!this.started || this.destroyed) return;
+    const wanted = this.wantedDisplays()
+      .map((d) => d.id)
+      .sort((a, b) => a - b);
+    const current = [...this.overlays.keys()].sort((a, b) => a - b);
+    if (wanted.length !== current.length || wanted.some((id, i) => id !== current[i])) this.scheduleRebuild(reason);
+  }
+
   private createAll(): void {
     if (this.destroyed) return;
-    const infos = this.describeDisplays();
+    const all = this.describeDisplays();
+    const infos = this.wantedDisplays();
+    if (infos.length < all.length && this.ctx.displayIndex === null) {
+      log.info(`free version: fire on the primary display only (${all.length} connected)`);
+    }
     for (const info of infos) {
-      if (this.ctx.displayIndex !== null && info.index !== this.ctx.displayIndex) continue;
       try {
         this.create(info);
       } catch (err) {

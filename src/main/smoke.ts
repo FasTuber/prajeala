@@ -1,8 +1,9 @@
 /**
  * `--smoke` mode for CI: wait for every overlay's RendererReadyReport, then for
  * `frames >= smokeFrames` in the stats of every overlay, print exactly one
- * `PRAJEALA_SMOKE_RESULT {...}` line to stdout and exit 0. Any failed ready
- * report, timeout or uncaught error prints a `{"ok":false,…}` line and exits 1.
+ * `PRAJEALA_SMOKE_RESULT {...}` line to stdout and exit 0. With `expectUi` the
+ * settings page must report that it booted as well. Any failed ready report,
+ * timeout or uncaught error prints a `{"ok":false,…}` line and exits 1.
  */
 import type { RendererReadyReport, RendererStats } from '../shared/ipc';
 import { createLogger } from './log';
@@ -17,6 +18,8 @@ export interface SmokeOptions {
   timeoutMs: number;
   /** Fire a test burst at the centre of every overlay this often. */
   burstIntervalMs?: number;
+  /** Also wait for the settings window to report `ready`. */
+  expectUi?: boolean;
 }
 
 export interface SmokeHooks {
@@ -38,6 +41,7 @@ export class SmokeRunner {
   private timeoutTimer: NodeJS.Timeout | null = null;
   private burstTimer: NodeJS.Timeout | null = null;
   private finished = false;
+  private ui: { ok: boolean; error?: string } | null = null;
 
   constructor(
     private readonly options: SmokeOptions,
@@ -62,6 +66,18 @@ export class SmokeRunner {
         if (!this.finished && this.overlays.count === 0) this.fail('no overlay windows created');
       }, 2000);
     }
+  }
+
+  /** Report from the settings page (see SettingsWindow.onReady). */
+  uiReady(report: { ok: boolean; error?: string }): void {
+    if (this.finished) return;
+    this.ui = report;
+    log.info(`settings window ready ok=${report.ok}${report.error ? ` error="${report.error}"` : ''}`);
+    if (!report.ok) {
+      this.fail(`settings window failed: ${report.error ?? 'unknown error'}`);
+      return;
+    }
+    this.check();
   }
 
   /** Called by main on any fatal condition (e.g. uncaught error). */
@@ -119,6 +135,7 @@ export class SmokeRunner {
     if (this.finished) return;
     const overlays = this.overlays.list();
     if (overlays.length === 0) return;
+    if (this.options.expectUi && !this.ui?.ok) return;
     for (const overlay of overlays) {
       const rec = this.records.get(overlay.id);
       if (!rec?.ready?.ok) return;
@@ -144,6 +161,7 @@ export class SmokeRunner {
       ok,
       ...extra,
       displays: this.overlays.count,
+      ...(this.options.expectUi ? { settingsWindow: this.ui ?? { ok: false } } : {}),
       framesRequired: this.options.frames,
       reports: records.map((r) => ({ display: r.display, displayId: r.displayId, ...(r.ready ?? { ok: false }) })),
       stats: records.map((r) => ({ display: r.display, displayId: r.displayId, ...(r.stats ?? {}) })),

@@ -1,12 +1,14 @@
 /**
  * Prăjeală — main process entry (ESM, bundled to dist/main/index.mjs).
  *
- * Wires: CLI flags → Chromium switches → settings store → overlay windows →
- * cursor / active-window trackers → tray + global shortcuts → optional smoke run.
+ * Wires: CLI flags → Chromium switches → settings store + licence → overlay windows →
+ * cursor / active-window trackers → tray, settings window, global shortcuts →
+ * optional smoke run.
  * This is a tray application: closing every window never quits; only the
  * tray, the global shortcut or the smoke runner do.
  */
-import { app, shell } from 'electron';
+import { app, net, screen, shell } from 'electron';
+import { pickLang } from '../shared/i18n';
 import {
   IPC,
   type ActiveWindowEvent,
@@ -14,16 +16,29 @@ import {
   type HostCapabilities,
   type PointerButtonEvent,
   type Rect,
+  type UiState,
 } from '../shared/ipc';
+import { FREE_MAX_DISPLAYS, effectiveSettings, stripLockedChoices } from '../shared/pro';
+import { PRODUCT, externalUrl } from '../shared/product';
 import type { Settings } from '../shared/settings';
 import { ActiveWindowTracker, type ActiveWindowInfo } from './active-window-tracker';
 import { parseCli, type CliOptions } from './cli';
 import { CursorTracker, type CursorSample } from './cursor-tracker';
 import { rectCenter, rectContainsPoint, rectsIntersect, toLocalPoint, toLocalRect } from './geometry';
 import { createLogger, setVerbose } from './log';
+import { LicenseManager } from './license/license-manager';
 import { OverlayManager } from './overlay-manager';
-import { preloadPath, rendererHtmlPath, settingsFilePath } from './paths';
+import {
+  appIconPath,
+  licenseFilePath,
+  preloadPath,
+  rendererHtmlPath,
+  settingsFilePath,
+  settingsHtmlPath,
+  settingsPreloadPath,
+} from './paths';
 import { SettingsStore } from './settings-store';
+import { SETTINGS_WINDOW_TITLE, SettingsWindow } from './settings-window';
 import { registerShortcuts, unregisterShortcuts } from './shortcuts';
 import { SmokeRunner } from './smoke';
 import { TrayController } from './tray';
@@ -50,6 +65,8 @@ if (process.platform === 'linux' && cli.linuxTransparentVisuals) {
 
 interface Runtime {
   store: SettingsStore;
+  license: LicenseManager;
+  settingsWindow: SettingsWindow;
   overlays: OverlayManager;
   cursor: CursorTracker;
   activeWindow: ActiveWindowTracker;
@@ -66,8 +83,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    log.info('second instance launched; the running one keeps the fire');
-    runtime?.tray.refresh();
+    log.info('second instance launched; opening the settings window of the running one');
+    runtime?.settingsWindow.open();
   });
 
   // Tray app: keep running without windows (overlays are recreated on display changes).
@@ -106,6 +123,23 @@ async function main(): Promise<void> {
   const store = new SettingsStore({ filePath: settingsFilePath(), persist: !cli.smoke });
   store.load();
 
+  const license = new LicenseManager({
+    filePath: licenseFilePath(),
+    persist: !cli.smoke,
+    product: PRODUCT,
+    // Chromium's network stack: honours the system proxy configuration.
+    fetch: (url, init) => net.fetch(url, init),
+    platform: process.platform,
+    forceTier: app.isPackaged ? null : cli.forceTier,
+  });
+  license.load();
+  const lang = pickLang(app.getLocale());
+
+  /** What the overlays draw: the stored settings reduced to what the licence allows. */
+  const effective = (): Settings => effectiveSettings(store.get(), license.pro);
+  /** Every settings change from tray, shortcuts and windows goes through here. */
+  const updateSettings = (patch: unknown): Settings => store.update(stripLockedChoices(patch, license.pro));
+
   const capabilities: HostCapabilities = {
     globalClicks: false,
     activeWindow: false,
@@ -119,9 +153,10 @@ async function main(): Promise<void> {
     rendererUrl: cli.rendererUrl,
     debugHud: cli.debugHud, // `?hud=1`; the persistent toggle travels via settings.showDebugHud
     displayIndex: cli.display,
-    getSettings: () => store.get(),
-    updateSettings: (patch) => store.update(patch),
+    getSettings: effective,
+    updateSettings,
     getCapabilities: () => capabilities,
+    maxDisplays: () => (license.pro ? Infinity : FREE_MAX_DISPLAYS),
   });
 
   // ── Trackers ───────────────────────────────────────────────────────────
@@ -184,16 +219,56 @@ async function main(): Promise<void> {
       .catch((err: unknown) => log.warn('could not open settings file:', err));
   };
 
-  const tray = new TrayController({
-    getSettings: () => store.get(),
-    updateSettings: (patch) => store.update(patch),
-    getCapabilities: () => capabilities,
+  const uiState = (): UiState => ({
+    settings: store.get(),
+    effective: effective(),
+    license: license.status(),
+    capabilities,
+    version: app.getVersion(),
+    platform: process.platform,
+    displays: screen.getAllDisplays().length,
+    lang,
+    product: {
+      name: PRODUCT.name,
+      priceLabel: PRODUCT.priceLabel,
+      trialDays: PRODUCT.trialDays,
+      hasSponsor: PRODUCT.sponsorUrl.length > 0,
+    },
+  });
+
+  let smokeRunner: SmokeRunner | null = null;
+  const settingsWindow = new SettingsWindow({
+    preloadPath: settingsPreloadPath,
+    htmlPath: settingsHtmlPath,
+    iconPath: appIconPath(),
+    getState: uiState,
+    updateSettings: (patch) => {
+      updateSettings(patch);
+    },
+    activate: (key) => license.activate(key),
+    deactivate: () => license.deactivate(),
+    openLink: (link) => {
+      const url = externalUrl(link);
+      if (url) void shell.openExternal(url).catch((err: unknown) => log.warn(`could not open ${url}:`, err));
+    },
+    openSettingsFile,
     testBurst: () => testBurst(1),
+    onReady: (report) => smokeRunner?.uiReady(report),
+  });
+
+  const tray = new TrayController({
+    getSettings: effective,
+    updateSettings,
+    getCapabilities: () => capabilities,
+    getLicense: () => license.status(),
+    lang,
+    testBurst: () => testBurst(1),
+    openSettingsWindow: (focus) => settingsWindow.open(focus ?? null),
     openSettingsFile,
     quit,
   });
 
-  runtime = { store, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
+  runtime = { store, license, settingsWindow, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
 
   // ── Settings → everything else ─────────────────────────────────────────
   let lastEnabled: boolean | null = null;
@@ -203,11 +278,21 @@ async function main(): Promise<void> {
     if (lastEnabled !== s.enabled) log.info(s.enabled ? 'fire enabled' : 'fire paused');
     lastEnabled = s.enabled;
   };
-  store.onChange((next) => {
-    log.debug('settings changed', next);
+  const broadcastSettings = (): void => {
+    const next = effective();
     overlays.sendToAll(IPC.settings, () => next);
     applySettings(next);
     tray.refresh();
+    settingsWindow.pushState();
+  };
+  store.onChange((next) => {
+    log.debug('settings changed', next);
+    broadcastSettings();
+  });
+  license.onChange((status) => {
+    log.info(`licence: ${status.tier}${status.source ? ` (${status.source})` : ''}`);
+    broadcastSettings();
+    overlays.syncDisplays('licence changed');
   });
 
   // ── Renderer → main messages ───────────────────────────────────────────
@@ -251,7 +336,7 @@ async function main(): Promise<void> {
   // ── Smoke mode ─────────────────────────────────────────────────────────
   if (cli.smoke) {
     const smoke = new SmokeRunner(
-      { frames: cli.smokeFrames, timeoutMs: cli.smokeTimeoutMs },
+      { frames: cli.smokeFrames, timeoutMs: cli.smokeTimeoutMs, expectUi: true },
       overlays,
       {
         sendTestBurst: () => testBurst(1),
@@ -262,7 +347,10 @@ async function main(): Promise<void> {
       },
     );
     runtime.smoke = smoke;
+    smokeRunner = smoke;
     smoke.start();
+    // The settings page must boot too (hidden: nobody looks at CI screens).
+    settingsWindow.open(null, { show: false });
   } else {
     process.on('uncaughtException', (err) => log.error('uncaught exception:', err));
     process.on('unhandledRejection', (reason) => log.error('unhandled rejection:', reason));
@@ -270,13 +358,21 @@ async function main(): Promise<void> {
 
   // ── Go ─────────────────────────────────────────────────────────────────
   overlays.start(); // emits 'overlays-changed' → applySettings
-  tray.create();
+  const hasTray = tray.create();
   registerShortcuts({
     getSettings: () => store.get(),
-    updateSettings: (patch) => store.update(patch),
+    isPro: () => license.pro,
+    updateSettings,
     testBurst: () => testBurst(1),
     quit,
   });
+  license.start();
+
+  // First launch: say hello (a tray-only app is otherwise invisible until something burns).
+  // Without a tray (some Linux desktops) the window is the only way to reach the settings.
+  if (!cli.smoke && (license.isFirstRun || cli.openSettings || !hasTray)) {
+    setTimeout(() => settingsWindow.open(license.isFirstRun ? 'welcome' : null), 1200);
+  }
 }
 
 function broadcastCursor(overlays: OverlayManager, sample: CursorSample): void {
@@ -304,9 +400,14 @@ function broadcastActiveWindow(overlays: OverlayManager, info: ActiveWindowInfo 
   overlays.sendToAll<ActiveWindowEvent | null>(IPC.activeWindow, (display) => toActiveWindowEvent(info, display.bounds));
 }
 
-/** Our own windows: same process (macOS/Windows report the main pid) or the overlay title (X11 reports a helper pid). */
+/**
+ * Our own overlays: same process (macOS/Windows report the main pid) or the overlay
+ * title (X11 reports a helper pid). The settings window is deliberately *not* “self”:
+ * it burns like any other app, which doubles as a live preview of the settings.
+ */
 function isSelfWindow(info: ActiveWindowInfo): boolean {
-  return info.pid === process.pid || /^Prăjeal[aă] overlay$/.test(info.title);
+  if (/^Prăjeal[aă] overlay$/.test(info.title)) return true;
+  return info.pid === process.pid && info.title !== SETTINGS_WINDOW_TITLE;
 }
 
 function toActiveWindowEvent(info: ActiveWindowInfo, displayBounds: Rect): ActiveWindowEvent {
@@ -326,6 +427,8 @@ function shutdown(): void {
   rt.shuttingDown = true;
   log.debug('shutting down');
   unregisterShortcuts();
+  rt.license.stop();
+  rt.settingsWindow.destroy();
   rt.cursor.stop();
   rt.activeWindow.stop();
   rt.tray.destroy();

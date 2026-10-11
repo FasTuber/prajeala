@@ -4,7 +4,7 @@
  * it can be unit-tested with Vitest.
  */
 
-export const PALETTES = ['classic', 'blue', 'green', 'plasma', 'ember'] as const;
+export const PALETTES = ['classic', 'ember', 'blue', 'green', 'plasma', 'aurora', 'gold', 'ghost'] as const;
 export type Palette = (typeof PALETTES)[number];
 
 export const INTENSITIES = ['low', 'medium', 'high', 'inferno'] as const;
