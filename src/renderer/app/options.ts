@@ -11,6 +11,7 @@
  *   ?warmup=N     run N fixed-step (1/60 s) updates before the first frame (screenshots)
  *   ?view=heat|smoke|glow   show a raw simulation field instead of the composite
  *   ?losectx=ms   lose the WebGL context after `ms` and restore it 800 ms later
+ *   ?burn=screen|window   mock only: burn a generated fake desktop 1 s after load (Arde tot)
  * Mock-only settings overrides: enabled, intensity, palette, cursorMode (or cursor),
  * bottom, window, sparks, bursts, simScale, fps, pressure.
  */
@@ -31,6 +32,8 @@ export interface RendererOptions {
   view: number;
   /** Dev: lose the WebGL context after this many ms (0 = never). */
   loseContextAt: number;
+  /** Mock only: start an Arde tot burn of a generated desktop. */
+  burnDemo: 'screen' | 'window' | null;
   settingsOverrides: Partial<Settings>;
 }
 
@@ -83,6 +86,7 @@ export function parseOptions(search: string): RendererOptions {
     warmup: Number.isFinite(warmup) ? Math.max(0, Math.min(3600, Math.floor(warmup))) : 0,
     view: VIEWS[params.get('view') ?? ''] ?? 0,
     loseContextAt: Math.max(0, Number(params.get('losectx') ?? 0) || 0),
+    burnDemo: params.get('burn') === 'window' ? 'window' : params.has('burn') && flag(params, 'burn') ? 'screen' : null,
     settingsOverrides: overrides,
   };
 }

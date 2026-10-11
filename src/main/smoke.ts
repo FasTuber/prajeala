@@ -20,6 +20,8 @@ export interface SmokeOptions {
   burstIntervalMs?: number;
   /** Also wait for the settings window to report `ready`. */
   expectUi?: boolean;
+  /** Also wait for an Arde tot burn to complete. */
+  expectBurn?: boolean;
 }
 
 export interface SmokeHooks {
@@ -42,6 +44,7 @@ export class SmokeRunner {
   private burstTimer: NodeJS.Timeout | null = null;
   private finished = false;
   private ui: { ok: boolean; error?: string } | null = null;
+  private burn: { ok: boolean; reason?: string; error?: string } | null = null;
 
   constructor(
     private readonly options: SmokeOptions,
@@ -75,6 +78,18 @@ export class SmokeRunner {
     log.info(`settings window ready ok=${report.ok}${report.error ? ` error="${report.error}"` : ''}`);
     if (!report.ok) {
       this.fail(`settings window failed: ${report.error ?? 'unknown error'}`);
+      return;
+    }
+    this.check();
+  }
+
+  /** Outcome of the smoke burn (see index.ts). */
+  burnResult(outcome: { ok: boolean; reason?: string; error?: string }): void {
+    if (this.finished) return;
+    this.burn = { ok: outcome.ok, ...(outcome.reason ? { reason: outcome.reason } : {}), ...(outcome.error ? { error: outcome.error } : {}) };
+    log.info(`burn finished ok=${outcome.ok}${outcome.reason ? ` reason=${outcome.reason}` : ''}`);
+    if (!outcome.ok) {
+      this.fail(`burn failed: ${outcome.reason ?? 'unknown'}${outcome.error ? ` (${outcome.error})` : ''}`);
       return;
     }
     this.check();
@@ -136,6 +151,7 @@ export class SmokeRunner {
     const overlays = this.overlays.list();
     if (overlays.length === 0) return;
     if (this.options.expectUi && !this.ui?.ok) return;
+    if (this.options.expectBurn && !this.burn?.ok) return;
     for (const overlay of overlays) {
       const rec = this.records.get(overlay.id);
       if (!rec?.ready?.ok) return;
@@ -162,6 +178,7 @@ export class SmokeRunner {
       ...extra,
       displays: this.overlays.count,
       ...(this.options.expectUi ? { settingsWindow: this.ui ?? { ok: false } } : {}),
+      ...(this.options.expectBurn ? { burn: this.burn ?? { ok: false } } : {}),
       framesRequired: this.options.frames,
       reports: records.map((r) => ({ display: r.display, displayId: r.displayId, ...(r.ready ?? { ok: false }) })),
       stats: records.map((r) => ({ display: r.display, displayId: r.displayId, ...(r.stats ?? {}) })),

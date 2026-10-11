@@ -18,6 +18,7 @@ import type {
   Unsubscribe,
 } from '../../shared/ipc';
 import { CURSOR_MODES, INTENSITIES, PALETTES, mergeSettings, normalizeSettings, type Settings } from '../../shared/settings';
+import type { BurnStart } from '../../shared/burn';
 import type { RendererOptions } from '../app/options';
 import { SyntheticCursor } from './SyntheticCursor';
 
@@ -46,6 +47,27 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   const displaySignal = new Signal<DisplayInfo>();
   const capsSignal = new Signal<HostCapabilities>();
   const testBurst = new Signal<{ x: number; y: number; strength: number }>();
+  const burnPrepare = new Signal<null>();
+  const burnStart = new Signal<BurnStart>();
+  const burnAbort = new Signal<null>();
+  if (options.burnDemo) {
+    const mode = options.burnDemo;
+    window.setTimeout(() => {
+      void fakeDesktop(window.innerWidth, window.innerHeight).then((image) => {
+        const full = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+        const win = { x: Math.round(full.width * 0.22), y: Math.round(full.height * 0.16), width: Math.round(full.width * 0.5), height: Math.round(full.height * 0.55) };
+        burnStart.emit({
+          mode,
+          image,
+          mime: 'image/jpeg',
+          imageRect: full,
+          burnRect: mode === 'window' ? win : full,
+          ignite: options.pin ?? { x: full.width * 0.5, y: full.height * 0.8 },
+          durationMs: 10_000,
+        });
+      });
+    }, 1000);
+  }
   const start = performance.now();
   const synthetic = new SyntheticCursor(0.5);
   const point = { x: 0, y: 0 };
@@ -186,8 +208,58 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     onTestBurst: (cb) => testBurst.on(cb),
     onKeyPress: () => () => undefined,
     onPower: () => () => undefined,
+    onBurnPrepare: (cb) => burnPrepare.on(() => cb()),
+    onBurnStart: (cb) => burnStart.on(cb),
+    onBurnAbort: (cb) => burnAbort.on(() => cb()),
+    burnReady: () => console.info('[prajeala:mock] burn ready'),
+    burnDone: (r) => console.info('[prajeala:mock] burn done', r),
     reportReady: (report: RendererReadyReport) => console.info('[prajeala:mock] ready', report),
     reportStats: (stats: RendererStats) => console.debug('[prajeala:mock] stats', stats),
     log: (level, message) => console[level === 'debug' ? 'debug' : level === 'info' ? 'info' : level === 'warn' ? 'warn' : 'error'](`[prajeala] ${message}`),
   };
+}
+
+/** A believable desktop (wallpaper, editor window, taskbar) for burning in the mock. */
+async function fakeDesktop(w: number, h: number): Promise<Uint8Array> {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d');
+  if (!g) return new Uint8Array(0);
+  const bg = g.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#2b3a5a');
+  bg.addColorStop(0.5, '#18202f');
+  bg.addColorStop(1, '#0d1118');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, w, h);
+  const win = { x: w * 0.22, y: h * 0.16, w: w * 0.5, h: h * 0.55 };
+  g.fillStyle = '#1e1f24';
+  g.fillRect(win.x, win.y, win.w, win.h);
+  g.fillStyle = '#2a2c33';
+  g.fillRect(win.x, win.y, win.w, 30);
+  g.font = '13px sans-serif';
+  g.fillStyle = '#aab';
+  g.fillText('deadline.ts — Visual Studio Code', win.x + 70, win.y + 20);
+  ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => {
+    g.fillStyle = c;
+    g.beginPath();
+    g.arc(win.x + 16 + i * 18, win.y + 15, 6, 0, Math.PI * 2);
+    g.fill();
+  });
+  const lines = ['// livrare: azi la 17:00', 'export async function shipIt(build: Build) {', '  const tests = await runTests(build);', '  if (tests.failed > 0) throw new Error("teste picate");', '  await deploy(build, { env: "production" });', "  return 'gata';", '}', '', '// TODO: de ce arde ecranul?'];
+  g.font = '15px monospace';
+  lines.forEach((line, i) => {
+    g.fillStyle = line.startsWith('//') ? '#8b949e' : i % 3 === 1 ? '#ff7b72' : '#c9d1d9';
+    g.fillText(line, win.x + 18, win.y + 60 + i * 24);
+  });
+  g.fillStyle = 'rgba(12,14,20,0.9)';
+  g.fillRect(0, h - 40, w, 40);
+  for (let i = 0; i < 5; i++) {
+    g.fillStyle = i === 0 ? '#ff7a1a' : '#3a4256';
+    g.fillRect(16 + i * 34, h - 32, 24, 24);
+  }
+  g.fillStyle = '#ccd';
+  g.fillText('16:58', w - 70, h - 14);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : new Uint8Array(0);
 }

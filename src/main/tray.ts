@@ -38,6 +38,8 @@ export interface TrayActions {
   getStatus(): string;
   lang: Lang;
   testBurst(): void;
+  /** Arde tot (screen / focused window / an image the user picks). */
+  burn(mode: 'screen' | 'window' | 'image'): void;
   /** Opens the settings window; `pro` scrolls to the Prăjeală Pro card. */
   openSettingsWindow(focus?: 'pro'): void;
   openSettingsFile(): void;
@@ -203,6 +205,14 @@ export class TrayController {
         click: toggle('launchAtLogin'),
       },
       { type: 'separator' },
+      { ...hint(`🔥 ${t('burnScreen')}`, 'CommandOrControl+Alt+Shift+F'), click: () => this.actions.burn('screen') },
+      {
+        label: t('burnMore'),
+        submenu: [
+          { label: t('burnWindow'), enabled: caps.activeWindow, click: () => this.actions.burn('window') },
+          { label: t('burnImage'), click: () => this.actions.burn('image') },
+        ],
+      },
       { ...hint(t('testBurst'), 'CommandOrControl+Shift+B'), click: () => this.actions.testBurst() },
       { label: t('openSettingsWindow'), click: () => this.actions.openSettingsWindow() },
       { label: t('openSettingsFile'), click: () => this.actions.openSettingsFile() },

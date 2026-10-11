@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { UI_IPC, type UiFocus, type UiState } from '../shared/ipc';
 import type { LicenseActionResult } from '../shared/license';
+import type { BurnMode } from '../shared/burn';
 import type { ExternalLink } from '../shared/product';
 import { createLogger } from './log';
 
@@ -26,6 +27,7 @@ export interface SettingsWindowDeps {
   openLink(link: ExternalLink): void;
   openSettingsFile(): void;
   testBurst(): void;
+  burn(mode: BurnMode): void;
   /** The page booted (or failed to) — used by --smoke. */
   onReady?(report: { ok: boolean; error?: string }): void;
 }
@@ -172,6 +174,10 @@ export class SettingsWindow {
     });
     ipcMain.on(UI_IPC.testBurst, (event) => {
       if (this.fromUs(event)) this.deps.testBurst();
+    });
+    ipcMain.on(UI_IPC.burn, (event, mode: unknown) => {
+      if (!this.fromUs(event)) return;
+      if (mode === 'screen' || mode === 'window' || mode === 'image') this.deps.burn(mode);
     });
     ipcMain.on(UI_IPC.ready, (event, report: unknown) => {
       if (!this.fromUs(event)) return;

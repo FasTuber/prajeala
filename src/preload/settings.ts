@@ -36,6 +36,9 @@ const api: PrajealaUiApi = {
   testBurst: () => {
     ipcRenderer.send(UI_IPC.testBurst);
   },
+  burn: (mode) => {
+    ipcRenderer.send(UI_IPC.burn, String(mode));
+  },
   reportReady: (report) => {
     ipcRenderer.send(UI_IPC.ready, { ok: report.ok === true, error: report.error ? String(report.error) : undefined });
   },

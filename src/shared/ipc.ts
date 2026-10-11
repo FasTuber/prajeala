@@ -9,6 +9,7 @@
  * i.e. `local = global - display.bounds.{x,y}`. Global screen coordinates are
  * included for debugging and for cross-display effects.
  */
+import type { BurnDoneReport, BurnMode, BurnStart } from './burn';
 import type { Lang } from './i18n';
 import type { LicenseActionResult, LicenseStatus } from './license';
 import type { ExternalLink } from './product';
@@ -127,9 +128,15 @@ export const IPC = {
   keyPress: 'prajeala:key-press',
   /** Power governor state (sleeping / eco). */
   power: 'prajeala:power',
+  /** Arde tot: clear the fire for a capture, start burning a picture, stop. */
+  burnPrepare: 'prajeala:burn-prepare',
+  burnStart: 'prajeala:burn-start',
+  burnAbort: 'prajeala:burn-abort',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
+  burnReady: 'prajeala:burn-ready',
+  burnDone: 'prajeala:burn-done',
   stats: 'prajeala:stats',
   log: 'prajeala:log',
 
@@ -158,6 +165,11 @@ export interface PrajealaApi {
   onTestBurst(cb: (p: { x: number; y: number; strength: number }) => void): Unsubscribe;
   onKeyPress(cb: () => void): Unsubscribe;
   onPower(cb: (p: PowerFrame) => void): Unsubscribe;
+  onBurnPrepare(cb: () => void): Unsubscribe;
+  onBurnStart(cb: (p: BurnStart) => void): Unsubscribe;
+  onBurnAbort(cb: () => void): Unsubscribe;
+  burnReady(): void;
+  burnDone(report: BurnDoneReport): void;
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;
@@ -196,6 +208,7 @@ export const UI_IPC = {
   // window → main (send)
   openLink: 'prajeala-ui:open-link',
   openSettingsFile: 'prajeala-ui:open-settings-file',
+  burn: 'prajeala-ui:burn',
   testBurst: 'prajeala-ui:test-burst',
   ready: 'prajeala-ui:ready',
   // main → window
@@ -212,6 +225,7 @@ export interface PrajealaUiApi {
   openLink(link: ExternalLink): void;
   openSettingsFile(): void;
   testBurst(): void;
+  burn(mode: BurnMode): void;
   reportReady(report: { ok: boolean; error?: string }): void;
   onState(cb: (state: UiState) => void): Unsubscribe;
   onFocus(cb: (focus: UiFocus) => void): Unsubscribe;

@@ -66,6 +66,7 @@ export function createMockUiApi(search: string): PrajealaUiApi {
     openLink: (link) => console.info('[mock] open link', link),
     openSettingsFile: () => console.info('[mock] open settings file'),
     testBurst: () => console.info('[mock] test burst'),
+    burn: (mode) => console.info('[mock] burn', mode),
     reportReady: (r) => console.info('[mock] ready', r),
     onState: (cb) => {
       stateListeners.add(cb);

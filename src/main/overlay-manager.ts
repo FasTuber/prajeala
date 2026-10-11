@@ -153,6 +153,32 @@ export class OverlayManager extends EventEmitter {
     return this.list().map((o) => ({ id: o.id, bounds: o.info.bounds }));
   }
 
+  /**
+   * Arde tot: while a burn runs the overlay takes clicks and keys (Esc) itself
+   * instead of passing them to the apps underneath.
+   */
+  setInteractive(overlay: Overlay, on: boolean): void {
+    const win = overlay.window;
+    if (win.isDestroyed()) return;
+    try {
+      if (on) {
+        win.setIgnoreMouseEvents(false);
+        if (process.platform !== 'linux') {
+          win.setFocusable(true);
+          win.focus();
+        }
+      } else {
+        win.setIgnoreMouseEvents(true, { forward: process.platform !== 'linux' });
+        if (process.platform !== 'linux') {
+          win.blur();
+          win.setFocusable(false);
+        }
+      }
+    } catch (err) {
+      log.warn(`setInteractive(${on}) failed:`, err);
+    }
+  }
+
   /** Tears down every overlay and recreates them (debounced). */
   scheduleRebuild(reason: string): void {
     if (this.destroyed) return;
@@ -396,6 +422,18 @@ export class OverlayManager extends EventEmitter {
       const overlay = this.byWebContents(event.sender);
       if (!overlay) return;
       this.emit('stats', overlay, sanitizeStats(stats));
+    });
+    ipcMain.on(IPC.burnReady, (event: IpcMainEvent) => {
+      const overlay = this.byWebContents(event.sender);
+      if (overlay) this.emit('burn-ready', overlay);
+    });
+    ipcMain.on(IPC.burnDone, (event: IpcMainEvent, report: unknown) => {
+      const overlay = this.byWebContents(event.sender);
+      if (!overlay) return;
+      const r = (report && typeof report === 'object' ? report : {}) as Record<string, unknown>;
+      const out: { ok: boolean; aborted: boolean; error?: string } = { ok: r.ok === true, aborted: r.aborted === true };
+      if (typeof r.error === 'string' && r.error) out.error = r.error.slice(0, 300);
+      this.emit('burn-done', overlay, out);
     });
     ipcMain.on(IPC.log, (event: IpcMainEvent, entry: unknown) => {
       const overlay = this.byWebContents(event.sender);

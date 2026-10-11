@@ -95,6 +95,8 @@ export class FireRenderer {
     canvasHeight: number,
     time: number,
     look: RenderLook,
+    /** Drawn after the clear and before the fire (Arde tot's burning picture). Leaves blending on. */
+    underlay?: () => void,
   ): void {
     const gl = this.device.gl;
     gl.disable(gl.BLEND);
@@ -120,6 +122,13 @@ export class FireRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    if (underlay) {
+      underlay();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvasWidth, canvasHeight);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    }
     this.composite.use();
     this.composite.uniform2f('uTexel', 1 / simWidth, 1 / simHeight);
     this.composite.uniform1f('uTime', time);

@@ -18,6 +18,7 @@ import {
   type RendererStats,
   type Unsubscribe,
 } from '../shared/ipc';
+import type { BurnDoneReport, BurnStart } from '../shared/burn';
 import type { Settings } from '../shared/settings';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
@@ -48,6 +49,15 @@ const api: PrajealaApi = {
   onTestBurst: (cb) => subscribe<{ x: number; y: number; strength: number }>(IPC.testBurst, cb),
   onKeyPress: (cb) => subscribe<null>(IPC.keyPress, () => cb()),
   onPower: (cb) => subscribe<PowerFrame>(IPC.power, cb),
+  onBurnPrepare: (cb) => subscribe<null>(IPC.burnPrepare, () => cb()),
+  onBurnStart: (cb) => subscribe<BurnStart>(IPC.burnStart, cb),
+  onBurnAbort: (cb) => subscribe<null>(IPC.burnAbort, () => cb()),
+  burnReady: () => {
+    ipcRenderer.send(IPC.burnReady);
+  },
+  burnDone: (report: BurnDoneReport) => {
+    ipcRenderer.send(IPC.burnDone, report);
+  },
 
   reportReady: (report: RendererReadyReport) => {
     ipcRenderer.send(IPC.ready, report);

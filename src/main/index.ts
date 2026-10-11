@@ -7,7 +7,8 @@
  * This is a tray application: closing every window never quits; only the
  * tray, the global shortcut or the smoke runner do.
  */
-import { app, net, screen, shell } from 'electron';
+import { app, dialog, net, screen, shell } from 'electron';
+import type { BurnMode } from '../shared/burn';
 import { pickLang, translator } from '../shared/i18n';
 import {
   IPC,
@@ -28,6 +29,7 @@ import { CursorTracker, type CursorSample } from './cursor-tracker';
 import { rectCenter, rectContainsPoint, rectsIntersect, toLocalPoint, toLocalRect } from './geometry';
 import { createLogger, setVerbose } from './log';
 import { LicenseManager } from './license/license-manager';
+import { BurnController } from './burn';
 import { OverlayManager } from './overlay-manager';
 import { PowerGovernor } from './power-governor';
 import {
@@ -259,6 +261,46 @@ async function main(): Promise<void> {
       .catch((err: unknown) => log.warn('could not open settings file:', err));
   };
 
+  // ── Arde tot ─────────────────────────────────────────────────────────
+  const burn = new BurnController({
+    overlays,
+    readCursor: () => cursor.readPoint(),
+    activeWindow: () => (lastActiveWindow && !isSelfWindow(lastActiveWindow) ? lastActiveWindow : null),
+  });
+  const startBurn = async (mode: BurnMode): Promise<void> => {
+    const tt = translator(lang);
+    if (governor.current.paused) return;
+    if (!store.get().enabled) updateSettings({ enabled: true });
+    let imagePath: string | undefined;
+    if (mode === 'image') {
+      const res = await dialog.showOpenDialog({
+        title: tt('burnPickImage'),
+        properties: ['openFile'],
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
+      });
+      if (res.canceled || !res.filePaths[0]) return;
+      imagePath = res.filePaths[0];
+    }
+    const outcome = await burn.start(mode, { imagePath });
+    if (outcome.reason === 'permission') {
+      const r = await dialog.showMessageBox({
+        type: 'info',
+        title: tt('burnPermissionTitle'),
+        message: tt('burnPermissionTitle'),
+        detail: tt('burnPermissionBody'),
+        buttons: [tt('burnPermissionOpen'), tt('burnPermissionImage'), tt('cancel')],
+        defaultId: 0,
+        cancelId: 2,
+      });
+      if (r.response === 0) void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+      else if (r.response === 1) void startBurn('image');
+    } else if (outcome.reason === 'no-window') {
+      void dialog.showMessageBox({ type: 'info', message: tt('burnNoWindow'), buttons: ['OK'] });
+    } else if (!outcome.ok && outcome.reason !== 'busy') {
+      log.warn(`burn did not run: ${outcome.reason ?? 'unknown'}${outcome.error ? ` (${outcome.error})` : ''}`);
+    }
+  };
+
   const uiState = (): UiState => ({
     settings: store.get(),
     effective: effective(),
@@ -294,6 +336,7 @@ async function main(): Promise<void> {
     },
     openSettingsFile,
     testBurst: () => testBurst(1),
+    burn: (mode) => void startBurn(mode),
     onReady: (report) => smokeRunner?.uiReady(report),
   });
 
@@ -313,6 +356,7 @@ async function main(): Promise<void> {
     },
     lang,
     testBurst: () => testBurst(1),
+    burn: (mode) => void startBurn(mode),
     openSettingsWindow: (focus) => settingsWindow.open(focus ?? null),
     openSettingsFile,
     quit,
@@ -393,7 +437,7 @@ async function main(): Promise<void> {
   // ── Smoke mode ─────────────────────────────────────────────────────────
   if (cli.smoke) {
     const smoke = new SmokeRunner(
-      { frames: cli.smokeFrames, timeoutMs: cli.smokeTimeoutMs, expectUi: true },
+      { frames: cli.smokeFrames, timeoutMs: cli.smokeTimeoutMs, expectUi: true, expectBurn: true },
       overlays,
       {
         sendTestBurst: () => testBurst(1),
@@ -406,6 +450,12 @@ async function main(): Promise<void> {
     runtime.smoke = smoke;
     smokeRunner = smoke;
     smoke.start();
+    // Arde tot end to end: capture the (Xvfb) screen, burn it, get the overlay's report.
+    overlays.once('ready', () => {
+      setTimeout(() => {
+        void burn.start('screen', { durationMs: 2500 }).then((outcome) => smoke.burnResult(outcome));
+      }, 800);
+    });
     // The settings page must boot too (hidden: nobody looks at CI screens).
     settingsWindow.open(null, { show: false });
   } else {
@@ -421,6 +471,7 @@ async function main(): Promise<void> {
     isPro: () => license.pro,
     updateSettings,
     testBurst: () => testBurst(1),
+    burn: () => void startBurn('screen'),
     quit,
   });
   license.start();

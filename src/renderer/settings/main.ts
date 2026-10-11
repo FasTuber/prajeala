@@ -108,6 +108,15 @@ class SettingsPage {
         this.typingRow(),
         h('div', {}, [h('button', { class: 'btn', text: `🔥 ${t('testBurst')}`, on: { click: () => this.api.testBurst() } })]),
       ]),
+      this.card(t('sectionBurn'), [
+        h('p', { class: 'small muted', text: t('burnDesc') }),
+        h('div', { class: 'seg' }, [
+          h('button', { class: 'btn primary', text: `🔥 ${t('burnScreen')}`, on: { click: () => this.api.burn('screen') } }),
+          this.burnWindowButton(),
+          h('button', { class: 'btn', text: t('burnImage'), on: { click: () => this.api.burn('image') } }),
+        ]),
+        h('p', { class: 'small muted' }, [h('kbd', { text: `${this.state.platform === 'darwin' ? '⌘' : 'Ctrl'}+Alt+Shift+F` })]),
+      ]),
       this.card(t('sectionPower'), [
         this.powerStatus(),
         this.toggleRow('idleSleep', t('idleSleep'), null, () => true, t('idleSleepNote')),
@@ -282,6 +291,14 @@ class SettingsPage {
       noteEl.hidden = !noteEl.textContent;
     });
     return h('label', { class: 'row' }, [h('span', { class: 'label' }, [h('span', { text: label }), noteEl]), h('span', { class: 'switch' }, [input, h('span')])]);
+  }
+
+  private burnWindowButton(): HTMLElement {
+    const b = h('button', { class: 'btn', text: this.t('burnWindow'), on: { click: () => this.api.burn('window') } });
+    this.syncs.push((s) => {
+      b.toggleAttribute('disabled', !s.capabilities.activeWindow);
+    });
+    return b;
   }
 
   private powerStatus(): HTMLElement {
