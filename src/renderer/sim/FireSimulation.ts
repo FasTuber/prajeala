@@ -168,7 +168,7 @@ export class FireSimulation {
     gl.disable(gl.BLEND);
 
     // 1. Splats.
-    this.applySplats(texelX, texelY, aspect);
+    this.applySplats(texelX, texelY, aspect, dt);
 
     // 2. Curl.
     this.curlProgram.use();
@@ -250,7 +250,7 @@ export class FireSimulation {
     this.temperature.swap();
   }
 
-  private applySplats(texelX: number, texelY: number, aspect: number): void {
+  private applySplats(texelX: number, texelY: number, aspect: number, dt: number): void {
     const q = this.queue;
     if (q.count === 0) return;
     for (let offset = 0; offset < q.count; offset += MAX_SPLATS_PER_PASS) {
@@ -274,7 +274,9 @@ export class FireSimulation {
       this.splatTemperature.uniform1i('uCount', n);
       this.splatTemperature.uniform4fv('uSplatA', q.a, start, len);
       this.splatTemperature.uniform4fv('uSplatB', q.b, start, len);
+      this.splatTemperature.uniform1f('uDt', dt);
       this.splatTemperature.texture('uTarget', this.temperature.texture, 0);
+      this.splatTemperature.texture('uVelocity', this.velocity.texture, 1);
       this.device.blit(this.temperature.write);
       this.temperature.swap();
     }

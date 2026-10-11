@@ -156,7 +156,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
       activeWindow.emit({
         title: 'Mock window',
         app: 'mock',
-        bounds: { x: bx, y: by, width: bw, height: bh },
+        bounds: options.fakeWindowRect ? { ...options.fakeWindowRect } : { x: bx, y: by, width: bw, height: bh },
         intersects: true,
         isSelf: false,
       });

@@ -7,6 +7,7 @@
  *   ?synthetic=1  mock only: always drive the cursor synthetically
  *   ?pin=x,y      mock only: hold the cursor at a fixed position
  *   ?window=1     mock only: fake a moving active window
+ *   ?window=x,y,w,h  mock only: fake an active window pinned at that rectangle (screenshots)
  *   ?warmup=N     run N fixed-step (1/60 s) updates before the first frame (screenshots)
  *   ?view=heat|smoke|glow   show a raw simulation field instead of the composite
  *   ?losectx=ms   lose the WebGL context after `ms` and restore it 800 ms later
@@ -23,6 +24,8 @@ export interface RendererOptions {
   synthetic: boolean;
   pin: { x: number; y: number } | null;
   fakeWindow: boolean;
+  /** Mock only: fixed rectangle for the fake active window (null = moving). */
+  fakeWindowRect: { x: number; y: number; width: number; height: number } | null;
   warmup: number;
   /** Debug field view: 0 normal, 1 heat, 2 smoke, 3 glow. */
   view: number;
@@ -62,6 +65,11 @@ export function parseOptions(search: string): RendererOptions {
     const [px, py] = pinRaw.split(',').map(Number);
     if (px !== undefined && py !== undefined && Number.isFinite(px) && Number.isFinite(py)) pin = { x: px, y: py };
   }
+  let fakeWindowRect: RendererOptions['fakeWindowRect'] = null;
+  const rect = (params.get('window') ?? '').split(',').map(Number);
+  if (rect.length === 4 && rect.every((n) => Number.isFinite(n)) && rect[2]! > 0 && rect[3]! > 0) {
+    fakeWindowRect = { x: rect[0]!, y: rect[1]!, width: rect[2]!, height: rect[3]! };
+  }
   const warmup = Number(params.get('warmup') ?? 0);
   return {
     hud: flag(params, 'hud'),
@@ -71,6 +79,7 @@ export function parseOptions(search: string): RendererOptions {
     synthetic: flag(params, 'synthetic'),
     pin,
     fakeWindow: flag(params, 'window'),
+    fakeWindowRect,
     warmup: Number.isFinite(warmup) ? Math.max(0, Math.min(3600, Math.floor(warmup))) : 0,
     view: VIEWS[params.get('view') ?? ''] ?? 0,
     loseContextAt: Math.max(0, Number(params.get('losectx') ?? 0) || 0),

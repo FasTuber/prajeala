@@ -16,8 +16,11 @@ out vec4 outColor;
 void main() {
   vec2 vel = decV(sampleTex(uVelocity, vUv));
   vec2 coord = vUv - uDt * vel * uAspectInv;
-  // Open boundaries: anything advected in from outside the screen is cold air.
-  float inside = step(0.0, coord.x) * step(coord.x, 1.0) * step(0.0, coord.y) * step(coord.y, 1.0);
+  // Open boundaries: anything advected in from outside the screen is cold air —
+  // except through the bottom edge, where the screen-bottom sources sit just below
+  // the screen: there the edge row is extended (zero gradient). With a cold bottom
+  // the inflow wiped a v·dt-tall band every step and the flames never reached the edge.
+  float inside = step(0.0, coord.x) * step(coord.x, 1.0) * step(coord.y, 1.0);
   coord = clamp(coord, uTexel * 0.5, 1.0 - uTexel * 0.5);
 #ifdef ADVECT_VELOCITY
   vec2 v = decV(sampleTex(uSource, coord)) * uDissipation.x;
