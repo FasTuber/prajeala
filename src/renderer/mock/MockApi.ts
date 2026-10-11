@@ -185,6 +185,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     onCapabilities: (cb) => capsSignal.on(cb),
     onTestBurst: (cb) => testBurst.on(cb),
     onKeyPress: () => () => undefined,
+    onPower: () => () => undefined,
     reportReady: (report: RendererReadyReport) => console.info('[prajeala:mock] ready', report),
     reportStats: (stats: RendererStats) => console.debug('[prajeala:mock] stats', stats),
     log: (level, message) => console[level === 'debug' ? 'debug' : level === 'info' ? 'info' : level === 'warn' ? 'warn' : 'error'](`[prajeala] ${message}`),

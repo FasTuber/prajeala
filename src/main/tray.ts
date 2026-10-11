@@ -34,6 +34,8 @@ export interface TrayActions {
   updateSettings(patch: Partial<Settings>): void;
   getCapabilities(): HostCapabilities;
   getLicense(): LicenseStatus;
+  /** Short state suffix for the tooltip ('' when burning normally). */
+  getStatus(): string;
   lang: Lang;
   testBurst(): void;
   /** Opens the settings window; `pro` scrolls to the Prăjeală Pro card. */
@@ -75,7 +77,8 @@ export class TrayController {
       this.tray.setContextMenu(Menu.buildFromTemplate(this.buildTemplate()));
       const t = translator(this.actions.lang);
       const s = this.actions.getSettings();
-      this.tray.setToolTip(s.enabled ? t('tooltip') : `${t('tooltip')} (${t('paused')})`);
+      const status = s.enabled ? this.actions.getStatus() : t('paused');
+      this.tray.setToolTip(status ? `${t('tooltip')} (${status})` : t('tooltip'));
     } catch (err) {
       log.warn('menu rebuild failed:', err);
     }
@@ -99,7 +102,9 @@ export class TrayController {
     const license = this.actions.getLicense();
     const pro = license.pro;
     const set = (patch: Partial<Settings>) => () => this.actions.updateSettings(patch);
-    const toggle = (key: 'clickBursts' | 'burnActiveWindow' | 'screenBottomFire' | 'sparks' | 'showDebugHud' | 'launchAtLogin') => () =>
+    const toggle = (
+      key: 'clickBursts' | 'burnActiveWindow' | 'screenBottomFire' | 'sparks' | 'showDebugHud' | 'launchAtLogin' | 'gameMode' | 'idleSleep',
+    ) => () =>
       this.actions.updateSettings({ [key]: !this.actions.getSettings()[key] });
     const upsell = () => this.actions.openSettingsWindow('pro');
     const locked = (label: string): MenuItemConstructorOptions => ({ label: t('proLocked', { label }), click: upsell });
@@ -180,6 +185,14 @@ export class TrayController {
       { label: t('screenBottomFire'), type: 'checkbox', checked: s.screenBottomFire, click: toggle('screenBottomFire') },
       { label: t('sparks'), type: 'checkbox', checked: s.sparks, click: toggle('sparks') },
       { label: t('debugHud'), type: 'checkbox', checked: s.showDebugHud, click: toggle('showDebugHud') },
+      { label: t('idleSleep'), type: 'checkbox', checked: s.idleSleep, click: toggle('idleSleep') },
+      {
+        label: t('gameMode'),
+        type: 'checkbox',
+        checked: s.gameMode,
+        enabled: caps.activeWindow,
+        click: toggle('gameMode'),
+      },
       { label: t('fps'), submenu: fps },
       { label: t('quality'), submenu: quality },
       {

@@ -8,7 +8,7 @@
  * tray, the global shortcut or the smoke runner do.
  */
 import { app, net, screen, shell } from 'electron';
-import { pickLang } from '../shared/i18n';
+import { pickLang, translator } from '../shared/i18n';
 import {
   IPC,
   type ActiveWindowEvent,
@@ -18,6 +18,7 @@ import {
   type Rect,
   type UiState,
 } from '../shared/ipc';
+import { applyPowerProfile, coversDisplay } from '../shared/power';
 import { FREE_MAX_DISPLAYS, effectiveSettings, stripLockedChoices } from '../shared/pro';
 import { PRODUCT, externalUrl } from '../shared/product';
 import type { Settings } from '../shared/settings';
@@ -28,6 +29,7 @@ import { rectCenter, rectContainsPoint, rectsIntersect, toLocalPoint, toLocalRec
 import { createLogger, setVerbose } from './log';
 import { LicenseManager } from './license/license-manager';
 import { OverlayManager } from './overlay-manager';
+import { PowerGovernor } from './power-governor';
 import {
   appIconPath,
   licenseFilePath,
@@ -65,6 +67,7 @@ if (process.platform === 'linux' && cli.linuxTransparentVisuals) {
 
 interface Runtime {
   store: SettingsStore;
+  governor: PowerGovernor;
   license: LicenseManager;
   settingsWindow: SettingsWindow;
   overlays: OverlayManager;
@@ -143,8 +146,9 @@ async function main(): Promise<void> {
   license.load();
   const lang = pickLang(app.getLocale());
 
-  /** What the overlays draw: the stored settings reduced to what the licence allows. */
-  const effective = (): Settings => effectiveSettings(store.get(), license.pro);
+  const governor = new PowerGovernor(() => store.get());
+  /** What the overlays draw: the stored settings reduced to what the licence and the power profile allow. */
+  const effective = (): Settings => applyPowerProfile(effectiveSettings(store.get(), license.pro), governor.current);
   /** Every settings change from tray, shortcuts and windows goes through here. */
   const updateSettings = (patch: unknown): Settings => store.update(stripLockedChoices(patch, license.pro));
 
@@ -171,12 +175,17 @@ async function main(): Promise<void> {
   const cursor = new CursorTracker({
     hz: cli.cursorHz,
     hooks: !cli.smoke && !cli.noHooks,
-    onMove: (sample) => broadcastCursor(overlays, sample),
+    onMove: (sample) => {
+      governor.noteInput();
+      broadcastCursor(overlays, sample);
+    },
     onKey: () => {
+      governor.noteInput();
       const s = effective();
       if (s.enabled && s.typingFire) overlays.sendToAll(IPC.keyPress, () => null);
     },
     onButton: (sample, button, type) => {
+      governor.noteInput();
       if (!store.get().clickBursts) return;
       overlays.sendToAll<PointerButtonEvent>(IPC.pointerButton, (info) => {
         const local = toLocalPoint(sample, info.bounds);
@@ -195,12 +204,31 @@ async function main(): Promise<void> {
   });
 
   let lastActiveWindow: ActiveWindowInfo | null = null;
+  /** Displays currently hidden because a fullscreen app covers them (game mode). */
+  let gameDisplays = new Set<number>();
+  const updateGameMode = (): void => {
+    const s = store.get();
+    const next = new Set<number>();
+    const w = lastActiveWindow;
+    if (s.gameMode && w && !isSelfWindow(w)) {
+      for (const d of overlays.displayBounds()) if (coversDisplay(w.bounds, d.bounds)) next.add(d.id);
+    }
+    const changed = next.size !== gameDisplays.size || [...next].some((id) => !gameDisplays.has(id));
+    if (!changed) return;
+    log.info(next.size ? `game mode: fullscreen app "${w?.app ?? ''}", hiding ${next.size} overlay(s)` : 'game mode: fullscreen app gone');
+    gameDisplays = next;
+    overlays.setSuppressed(gameDisplays);
+    // May run before the tray/settings window exist (first active-window poll).
+    runtime?.tray.refresh();
+    runtime?.settingsWindow.pushState();
+  };
   const activeWindow = new ActiveWindowTracker({
     hz: cli.windowHz,
     allowed: !cli.noActiveWindow,
     onChange: (info) => {
       lastActiveWindow = info;
       broadcastActiveWindow(overlays, info);
+      updateGameMode();
     },
   });
   capabilities.activeWindow = await activeWindow.init();
@@ -240,6 +268,7 @@ async function main(): Promise<void> {
     platform: process.platform,
     displays: screen.getAllDisplays().length,
     lang,
+    power: { ...governor.current, gameDisplays: gameDisplays.size },
     product: {
       name: PRODUCT.name,
       priceLabel: PRODUCT.priceLabel,
@@ -273,6 +302,15 @@ async function main(): Promise<void> {
     updateSettings,
     getCapabilities: () => capabilities,
     getLicense: () => license.status(),
+    getStatus: () => {
+      const tt = translator(lang);
+      const p = governor.current;
+      if (p.reason === 'locked') return tt('paused');
+      if (p.reason === 'battery') return tt('batteryPause');
+      if (p.sleeping) return tt('traySleeping');
+      if (gameDisplays.size > 0) return tt('trayGamePaused');
+      return p.eco ? tt('powerEco') : '';
+    },
     lang,
     testBurst: () => testBurst(1),
     openSettingsWindow: (focus) => settingsWindow.open(focus ?? null),
@@ -280,13 +318,13 @@ async function main(): Promise<void> {
     quit,
   });
 
-  runtime = { store, license, settingsWindow, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
+  runtime = { store, governor, license, settingsWindow, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
 
   // ── Settings → everything else ─────────────────────────────────────────
   let lastEnabled: boolean | null = null;
   const applySettings = (s: Settings): void => {
-    overlays.setVisible(s.enabled);
-    activeWindow.setEnabled(s.enabled && s.burnActiveWindow && capabilities.activeWindow);
+    overlays.setVisible(s.enabled && !governor.current.paused);
+    activeWindow.setEnabled(s.enabled && (s.burnActiveWindow || s.gameMode) && capabilities.activeWindow);
     if (lastEnabled !== s.enabled) log.info(s.enabled ? 'fire enabled' : 'fire paused');
     lastEnabled = s.enabled;
   };
@@ -299,7 +337,13 @@ async function main(): Promise<void> {
   };
   store.onChange((next) => {
     log.debug('settings changed', next);
+    governor.evaluate();
     broadcastSettings();
+    updateGameMode();
+  });
+  governor.onChange((power) => {
+    overlays.sendToAll(IPC.power, () => ({ sleeping: power.sleeping }));
+    broadcastSettings(); // eco profile, paused visibility, tray tooltip, settings window
   });
   license.onChange((status) => {
     log.info(`licence: ${status.tier}${status.source ? ` (${status.source})` : ''}`);
@@ -343,6 +387,7 @@ async function main(): Promise<void> {
     if (lastActiveWindow) {
       overlays.sendTo<ActiveWindowEvent>(overlay, IPC.activeWindow, toActiveWindowEvent(lastActiveWindow, overlay.info.bounds));
     }
+    overlays.sendTo(overlay, IPC.power, { sleeping: governor.current.sleeping });
   });
 
   // ── Smoke mode ─────────────────────────────────────────────────────────
@@ -379,6 +424,7 @@ async function main(): Promise<void> {
     quit,
   });
   license.start();
+  if (!cli.smoke) governor.start(); // smoke runs on an idle Xvfb display: never let it sleep
 
   // First launch: say hello (a tray-only app is otherwise invisible until something burns).
   // Without a tray (some Linux desktops) the window is the only way to reach the settings.
@@ -439,6 +485,7 @@ function shutdown(): void {
   rt.shuttingDown = true;
   log.debug('shutting down');
   unregisterShortcuts();
+  rt.governor.stop();
   rt.license.stop();
   rt.settingsWindow.destroy();
   rt.cursor.stop();

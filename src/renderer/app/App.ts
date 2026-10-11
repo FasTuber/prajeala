@@ -5,6 +5,7 @@
  */
 import type {
   ActiveWindowEvent,
+  PowerFrame,
   CursorEvent,
   DisplayInfo,
   HostCapabilities,
@@ -53,6 +54,8 @@ export interface AppEnvironment {
 }
 
 const MAX_DT = 1 / 30;
+/** Without new heat or sparks for this long the field is invisible: stop rendering until something happens. */
+const COLD_AFTER_MS = 3000;
 const IDLE_INTERVAL_MS = 250;
 const HUD_INTERVAL_MS = 250;
 
@@ -107,6 +110,10 @@ export class App {
   private contextLost = false;
   private readyReported = false;
   private clearedWhileDisabled = false;
+  /** Nothing burns on this display: the frame loop idles until an event wakes it. */
+  private cold = false;
+  private lastHeatAt = 0;
+  private power: PowerFrame = { sleeping: false };
   private warmupPending = 0;
   private dprQuery: MediaQueryList | null = null;
   private readonly unsubscribers: Unsubscribe[] = [];
@@ -259,8 +266,17 @@ export class App {
     this.dpr = dpr;
     this.ctx.width = w;
     this.ctx.height = h;
+    this.ctx.floor = this.floorY(h);
     this.updateSimSize();
     this.watchDpr();
+  }
+
+  /** Local y the bottom fire stands on: the top of the taskbar/Dock unless the user wants it over the taskbar. */
+  private floorY(cssHeight: number): number {
+    const d = this.display;
+    if (!d || this.settings.fireOverTaskbar) return cssHeight;
+    const workBottom = d.workArea.y + d.workArea.height - d.bounds.y;
+    return workBottom > cssHeight * 0.5 && workBottom < cssHeight ? workBottom : cssHeight;
   }
 
   private updateSimSize(): void {
@@ -301,6 +317,8 @@ export class App {
       this.gpu.renderer.setPalette(resolvePalette(next.palette, next.customColors));
     }
     if (next.simScale !== prev.simScale) this.updateSimSize();
+    if (next.fireOverTaskbar !== prev.fireOverTaskbar) this.ctx.floor = this.floorY(this.cssHeight);
+    this.wake();
     if (!next.sparks) this.sparks.clear();
     if (next.enabled && !prev.enabled) {
       this.clearedWhileDisabled = false;
@@ -335,22 +353,42 @@ export class App {
       api.onCapabilities((c) => this.handleCapabilities(c)),
       api.onTestBurst((p) => this.handleTestBurst(p)),
       api.onKeyPress(() => this.handleKeyPress()),
+      api.onPower((p) => this.handlePower(p)),
     );
   }
 
   private handleCursor(e: CursorEvent): void {
     this.cursor.push(e);
+    if (this.power.sleeping) return;
+    if (e.inside && this.settings.cursorMode !== 'off') this.wake();
     if (this.settings.enabled && this.gpu && !this.contextLost) this.cursorEmitter.onMove(e);
+  }
+
+  private handlePower(p: PowerFrame): void {
+    const wasSleeping = this.power.sleeping;
+    this.power = { sleeping: p.sleeping === true };
+    if (wasSleeping && !this.power.sleeping) this.wake();
+  }
+
+  /** Leaves the cold idle state (an event may light something). */
+  private wake(): void {
+    this.lastHeatAt = performance.now();
+    if (!this.cold) return;
+    this.cold = false;
+    this.lastTickAt = 0;
+    this.scheduleRaf();
   }
 
   private handlePointerButton(e: PointerButtonEvent): void {
     if (e.type !== 'down' || !this.settings.clickBursts || !this.settings.enabled) return;
     if (!e.inside && !this.ctx.inView(e.x, e.y, this.ctx.radius * 6)) return;
+    this.wake();
     this.burstEmitter.trigger(e.x, e.y, this.preset.burst, e.button);
   }
 
   private handleTestBurst(p: { x: number; y: number; strength: number }): void {
     if (!this.settings.enabled) return;
+    this.wake();
     this.burstEmitter.trigger(p.x, p.y, Number.isFinite(p.strength) ? p.strength : this.preset.burst);
   }
 
@@ -376,11 +414,13 @@ export class App {
       return;
     }
     if (!this.ctx.inView(x, y, 0)) return;
+    this.wake();
     this.burstEmitter.trigger(x, y, this.preset.burst * 0.35, 'middle');
   }
 
   private handleActiveWindow(e: ActiveWindowEvent | null): void {
     this.windowEmitter.setTarget(e);
+    if (e?.intersects) this.wake();
   }
 
   private handleDisplay(d: DisplayInfo): void {
@@ -468,7 +508,7 @@ export class App {
   private readonly frame = (now: number): void => {
     this.rafId = 0;
     if (!this.running) return;
-    const idle = document.hidden || !this.settings.enabled || this.contextLost || !this.gpu;
+    const idle = document.hidden || !this.settings.enabled || this.contextLost || !this.gpu || this.cold;
     if (idle) {
       this.idleFrame();
       this.scheduleIdle();
@@ -491,6 +531,7 @@ export class App {
     } catch (err) {
       this.log('error', `frame failed: ${describe(err)}`);
     }
+    this.checkCold(now);
     this.frames++;
     this.fpsCounter++;
     if (now - this.lastHudAt > HUD_INTERVAL_MS) {
@@ -516,10 +557,18 @@ export class App {
     this.log('info', `warm-up: ran ${n} steps`);
   }
 
-  /** Disabled / hidden: clear everything once, then do nothing. */
+  /** Goes cold once nothing has been lit for COLD_AFTER_MS and no spark is alive. */
+  private checkCold(now: number): void {
+    if (this.lastHeatAt === 0) this.lastHeatAt = now;
+    if (this.sparks.count > 0 || now - this.lastHeatAt < COLD_AFTER_MS) return;
+    this.cold = true;
+    this.clearedWhileDisabled = false;
+  }
+
+  /** Disabled / hidden / cold: clear everything once, then do nothing. */
   private idleFrame(): void {
     const g = this.gpu;
-    if (!this.settings.enabled && !this.clearedWhileDisabled && g && !this.contextLost) {
+    if ((!this.settings.enabled || this.cold) && !this.clearedWhileDisabled && g && !this.contextLost) {
       const gl = g.device.gl;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -540,7 +589,12 @@ export class App {
     this.ctx.dt = dt;
     this.ctx.time = this.time;
     this.driveSynthetic();
-    for (const e of this.emitters) e.update(this.ctx);
+    for (const e of this.emitters) {
+      // Asleep (user away): only events already in flight keep burning; nothing new is lit.
+      if (this.power.sleeping && e !== this.burstEmitter) continue;
+      e.update(this.ctx);
+    }
+    if (this.queue.count > 0) this.lastHeatAt = performance.now();
     if (this.settings.sparks) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
     g.sim.step(dt, this.simParams);
   }
@@ -559,7 +613,7 @@ export class App {
       this.look,
     );
     const c = this.cursor;
-    if (s.cursorMode !== 'off' && c.hasPosition && c.inside) {
+    if (s.cursorMode !== 'off' && c.hasPosition && c.inside && !this.power.sleeping) {
       const speedK = clamp01(c.speed / 1400);
       const r = this.ctx.radius;
       const comet = s.cursorMode === 'comet';
@@ -636,7 +690,19 @@ export class App {
     if (s.clickBursts) active.push(`burst(${this.burstEmitter.total})${this.burstEmitter.active ? '*' : ''}`);
     if (s.burnActiveWindow) active.push(`window${this.windowEmitter.visible ? '*' : ''}`);
     if (s.screenBottomFire) active.push('bottom*');
-    const state = !s.enabled ? 'PAUSED' : this.contextLost ? 'CONTEXT LOST' : !g ? 'NO GPU' : document.hidden ? 'HIDDEN' : 'running';
+    const state = !s.enabled
+      ? 'PAUSED'
+      : this.contextLost
+        ? 'CONTEXT LOST'
+        : !g
+          ? 'NO GPU'
+          : document.hidden
+            ? 'HIDDEN'
+            : this.power.sleeping
+              ? `asleep${this.cold ? ' (cold)' : ''}`
+              : this.cold
+                ? 'cold (idle)'
+                : 'running';
     const lines = [
       `prăjeală ${state} · ${this.fps} fps (cap ${s.maxFps}) · frames ${this.frames}${this.env.mock ? ' · mock' : ''}`,
       `sim ${g?.sim.width ?? 0}×${g?.sim.height ?? 0} (scale ${s.simScale}, ${s.pressureIterations} it) · canvas ${this.canvas.width}×${this.canvas.height} @${this.dpr.toFixed(2)}x`,

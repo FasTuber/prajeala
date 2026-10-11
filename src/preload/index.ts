@@ -12,6 +12,7 @@ import {
   type DisplayInfo,
   type HostCapabilities,
   type PointerButtonEvent,
+  type PowerFrame,
   type PrajealaApi,
   type RendererReadyReport,
   type RendererStats,
@@ -46,6 +47,7 @@ const api: PrajealaApi = {
   onCapabilities: (cb) => subscribe<HostCapabilities>(IPC.capabilities, cb),
   onTestBurst: (cb) => subscribe<{ x: number; y: number; strength: number }>(IPC.testBurst, cb),
   onKeyPress: (cb) => subscribe<null>(IPC.keyPress, () => cb()),
+  onPower: (cb) => subscribe<PowerFrame>(IPC.power, cb),
 
   reportReady: (report: RendererReadyReport) => {
     ipcRenderer.send(IPC.ready, report);

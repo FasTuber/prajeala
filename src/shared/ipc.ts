@@ -98,6 +98,12 @@ export interface RendererStats {
   sparks: number;
 }
 
+/** What the renderer needs from the power governor. */
+export interface PowerFrame {
+  /** Stop lighting new fire; let the field die down and go idle once cold. */
+  sleeping: boolean;
+}
+
 /** Capabilities detected by the main process (native optional modules). */
 export interface HostCapabilities {
   globalClicks: boolean;
@@ -119,6 +125,8 @@ export const IPC = {
   testBurst: 'prajeala:test-burst',
   /** A key was pressed somewhere (typing fire). Carries no key data. */
   keyPress: 'prajeala:key-press',
+  /** Power governor state (sleeping / eco). */
+  power: 'prajeala:power',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
@@ -149,6 +157,7 @@ export interface PrajealaApi {
   onCapabilities(cb: (c: HostCapabilities) => void): Unsubscribe;
   onTestBurst(cb: (p: { x: number; y: number; strength: number }) => void): Unsubscribe;
   onKeyPress(cb: () => void): Unsubscribe;
+  onPower(cb: (p: PowerFrame) => void): Unsubscribe;
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;
@@ -171,6 +180,8 @@ export interface UiState {
   displays: number;
   lang: Lang;
   product: { name: string; priceLabel: string; trialDays: number; hasSponsor: boolean };
+  /** Power governor status for the settings window. */
+  power: { sleeping: boolean; paused: boolean; eco: boolean; reason: string; gameDisplays: number };
 }
 
 /** Which part of the window to bring forward when it opens. */

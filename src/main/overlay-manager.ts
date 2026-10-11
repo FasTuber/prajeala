@@ -60,6 +60,8 @@ export class OverlayManager extends EventEmitter {
   private readonly overlays = new Map<number, Overlay>();
   private rebuildTimer: NodeJS.Timeout | null = null;
   private visible = true;
+  /** Displays whose overlay is hidden regardless of `visible` (game mode). */
+  private suppressed = new Set<number>();
   private started = false;
   private destroyed = false;
 
@@ -129,13 +131,26 @@ export class OverlayManager extends EventEmitter {
     this.visible = visible;
     for (const overlay of this.overlays.values()) {
       if (overlay.window.isDestroyed()) continue;
-      if (visible) {
+      if (visible && !this.suppressed.has(overlay.id)) {
         if (overlay.loaded) this.show(overlay);
       } else if (overlay.window.isVisible()) {
         overlay.window.hide();
         overlay.shown = false;
       }
     }
+  }
+
+  /** Hides the overlays of these displays (fullscreen app on them) and shows the others again. */
+  setSuppressed(displayIds: ReadonlySet<number>): void {
+    const same = displayIds.size === this.suppressed.size && [...displayIds].every((id) => this.suppressed.has(id));
+    if (same) return;
+    this.suppressed = new Set(displayIds);
+    this.setVisible(this.visible);
+  }
+
+  /** Display bounds (global DIP) of every live overlay. */
+  displayBounds(): Array<{ id: number; bounds: DisplayInfo['bounds'] }> {
+    return this.list().map((o) => ({ id: o.id, bounds: o.info.bounds }));
   }
 
   /** Tears down every overlay and recreates them (debounced). */
@@ -343,7 +358,7 @@ export class OverlayManager extends EventEmitter {
   }
 
   private show(overlay: Overlay): void {
-    if (!this.visible || overlay.window.isDestroyed()) return;
+    if (!this.visible || this.suppressed.has(overlay.id) || overlay.window.isDestroyed()) return;
     if (!overlay.window.isVisible()) overlay.window.showInactive();
     overlay.shown = true;
     // Re-assert z-order/bounds after the first show (Windows sometimes resets them).

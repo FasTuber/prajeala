@@ -108,6 +108,14 @@ class SettingsPage {
         this.typingRow(),
         h('div', {}, [h('button', { class: 'btn', text: `🔥 ${t('testBurst')}`, on: { click: () => this.api.testBurst() } })]),
       ]),
+      this.card(t('sectionPower'), [
+        this.powerStatus(),
+        this.toggleRow('idleSleep', t('idleSleep'), null, () => true, t('idleSleepNote')),
+        this.labeled(t('idleAfter'), this.idleAfterControl()),
+        this.labeled(t('batteryMode'), this.batteryControl()),
+        this.toggleRow('gameMode', t('gameMode'), null, (s) => s.capabilities.activeWindow, t('gameModeNote')),
+        this.toggleRow('fireOverTaskbar', t('fireOverTaskbar'), null, () => true, t('fireOverTaskbarNote')),
+      ]),
       this.card(t('sectionPerformance'), [
         this.labeled(t('quality'), this.qualityControl()),
         this.labeled(t('fps'), this.fpsControl()),
@@ -245,24 +253,73 @@ class SettingsPage {
   // ───────────────────────────── controls ─────────────────────────────
 
   private toggleRow(
-    key: 'enabled' | 'clickBursts' | 'burnActiveWindow' | 'screenBottomFire' | 'sparks' | 'launchAtLogin' | 'showDebugHud',
+    key:
+      | 'enabled'
+      | 'clickBursts'
+      | 'burnActiveWindow'
+      | 'screenBottomFire'
+      | 'sparks'
+      | 'launchAtLogin'
+      | 'showDebugHud'
+      | 'idleSleep'
+      | 'gameMode'
+      | 'fireOverTaskbar',
     label: string,
     unavailableNote: string | null,
     available: (s: UiState) => boolean,
+    note = '',
   ): HTMLElement {
     const input = h('input', {
       attrs: { type: 'checkbox', role: 'switch', 'aria-label': label },
       on: { change: () => void this.update({ [key]: input.checked }) },
     });
-    const note = h('span', { class: 'note' });
+    const noteEl = h('span', { class: 'note' });
     this.syncs.push((s) => {
       input.checked = s.settings[key];
       const ok = available(s);
       input.disabled = !ok;
-      note.textContent = ok || !unavailableNote ? '' : unavailableNote;
-      note.hidden = !note.textContent;
+      noteEl.textContent = ok || !unavailableNote ? note : unavailableNote;
+      noteEl.hidden = !noteEl.textContent;
     });
-    return h('label', { class: 'row' }, [h('span', { class: 'label' }, [h('span', { text: label }), note]), h('span', { class: 'switch' }, [input, h('span')])]);
+    return h('label', { class: 'row' }, [h('span', { class: 'label' }, [h('span', { text: label }), noteEl]), h('span', { class: 'switch' }, [input, h('span')])]);
+  }
+
+  private powerStatus(): HTMLElement {
+    const el = h('p', { class: 'small' });
+    this.syncs.push((s) => {
+      const p = s.power;
+      const t = this.t;
+      const main =
+        p.reason === 'locked' ? t('powerLocked') : p.reason === 'battery' ? t('powerBattery') : p.sleeping ? t('powerSleeping') : t('powerAwake');
+      const extra = [p.eco ? t('powerEco') : '', p.gameDisplays > 0 ? t('powerGame', { n: p.gameDisplays }) : ''].filter(Boolean);
+      el.textContent = `${p.sleeping || p.paused ? '💤' : '🔥'} ${main}${extra.length ? ` · ${extra.join(' · ')}` : ''}`;
+    });
+    return el;
+  }
+
+  private idleAfterControl(): HTMLElement {
+    const choices = [60, 120, 300, 600] as const;
+    return this.segmented(
+      choices,
+      (v) => this.t('minutesShort', { n: v / 60 }),
+      (s) => choices.find((v) => v === s.settings.idleSleepSeconds) ?? null,
+      () => false,
+      (v) => void this.update({ idleSleepSeconds: v }),
+      () => undefined,
+    );
+  }
+
+  private batteryControl(): HTMLElement {
+    const t = this.t;
+    const labels = { normal: t('batteryNormal'), eco: t('batteryEco'), pause: t('batteryPause') } as const;
+    return this.segmented(
+      ['normal', 'eco', 'pause'] as const,
+      (v) => labels[v],
+      (s) => s.settings.batteryMode,
+      () => false,
+      (v) => void this.update({ batteryMode: v }),
+      () => undefined,
+    );
   }
 
   /** Typing fire: Pro-only toggle (the switch shows the lock instead of flipping without Pro). */

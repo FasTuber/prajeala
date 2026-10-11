@@ -13,6 +13,10 @@ export type Intensity = (typeof INTENSITIES)[number];
 export const CURSOR_MODES = ['off', 'halo', 'trail', 'comet'] as const;
 export type CursorMode = (typeof CURSOR_MODES)[number];
 
+/** What to do on battery power: keep going, a lighter profile, or stop drawing. */
+export const BATTERY_MODES = ['normal', 'eco', 'pause'] as const;
+export type BatteryMode = (typeof BATTERY_MODES)[number];
+
 export interface Settings {
   /** Master switch. When false the overlays stay alive but render nothing. */
   enabled: boolean;
@@ -41,6 +45,14 @@ export interface Settings {
   customColors: [string, string, string];
   /** Small flares on the active window while typing (requires uiohook-napi). */
   typingFire: boolean;
+  /** Let the fire die down to nothing after `idleSleepSeconds` without any input (it relights on input). */
+  idleSleep: boolean;
+  idleSleepSeconds: number;
+  batteryMode: BatteryMode;
+  /** Hide the overlay of a display while a fullscreen app (game, video) covers it. */
+  gameMode: boolean;
+  /** Draw the screen-bottom fire over the taskbar/Dock instead of on top of it. */
+  fireOverTaskbar: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -59,12 +71,18 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   showDebugHud: false,
   customColors: Object.freeze(['#b4102a', '#ff6a00', '#ffe066']) as unknown as [string, string, string],
   typingFire: true,
+  idleSleep: true,
+  idleSleepSeconds: 120,
+  batteryMode: 'eco',
+  gameMode: true,
+  fireOverTaskbar: false,
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
   simScale: { min: 0.1, max: 1 },
   maxFps: { min: 15, max: 240 },
   pressureIterations: { min: 0, max: 64 },
+  idleSleepSeconds: { min: 20, max: 1800 },
 });
 
 /** Tunables that each intensity preset feeds into the simulation. */
@@ -197,6 +215,11 @@ export function normalizeSettings(input: unknown): Settings {
     showDebugHud: pickBool(src.showDebugHud, d.showDebugHud),
     customColors: pickColors(src.customColors, d.customColors),
     typingFire: pickBool(src.typingFire, d.typingFire),
+    idleSleep: pickBool(src.idleSleep, d.idleSleep),
+    idleSleepSeconds: Math.round(pickNumber(src.idleSleepSeconds, d.idleSleepSeconds, L.idleSleepSeconds.min, L.idleSleepSeconds.max)),
+    batteryMode: pickEnum(src.batteryMode, BATTERY_MODES, d.batteryMode),
+    gameMode: pickBool(src.gameMode, d.gameMode),
+    fireOverTaskbar: pickBool(src.fireOverTaskbar, d.fireOverTaskbar),
   };
 }
 

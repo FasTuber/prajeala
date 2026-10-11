@@ -36,6 +36,7 @@ export function createMockUiApi(search: string): PrajealaUiApi {
     platform: navigator.platform.toLowerCase().includes('mac') ? 'darwin' : 'linux',
     displays: Number(params.get('displays') ?? 2) || 1,
     lang: pickLang(params.get('lang') ?? navigator.language),
+    power: { sleeping: false, paused: false, eco: params.get('eco') === '1', reason: 'none', gameDisplays: 0 },
     product: { name: PRODUCT.name, priceLabel: PRODUCT.priceLabel, trialDays: PRODUCT.trialDays, hasSponsor: true },
   });
   const focus = params.get('focus');
