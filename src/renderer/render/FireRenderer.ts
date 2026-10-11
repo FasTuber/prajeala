@@ -21,9 +21,15 @@ export interface RenderLook {
   smoke: number;
   /** Debug view: 0 normal, 1 heat, 2 smoke, 3 glow. */
   view: number;
+  /** Mod Torță: darkness over the desktop, 0 (off) .. 1. */
+  dark: number;
+  /** Torch centre in uv (y up) and radius in screen heights (0 = no torch on this display). */
+  torchX: number;
+  torchY: number;
+  torchRadius: number;
 }
 
-export const DEFAULT_LOOK: RenderLook = { detail: 0.9, glow: 0.3, smoke: 0.14, view: 0 };
+export const DEFAULT_LOOK: RenderLook = { detail: 0.9, glow: 0.3, smoke: 0.14, view: 0, dark: 0, torchX: 0.5, torchY: 0.5, torchRadius: 0 };
 
 export class FireRenderer {
   private readonly composite: Program;
@@ -137,6 +143,8 @@ export class FireRenderer {
     this.composite.uniform1f('uGlow_', look.glow);
     this.composite.uniform1f('uSmoke', look.smoke);
     this.composite.uniform1i('uView', look.view | 0);
+    this.composite.uniform1f('uDark', look.dark);
+    this.composite.uniform3f('uTorch', look.torchX, look.torchY, look.torchRadius);
     this.composite.texture('uTemperature', temperature, 0);
     this.composite.texture('uGlow', this.glowA.texture, 1);
     this.composite.texture('uLut', this.lut, 2);

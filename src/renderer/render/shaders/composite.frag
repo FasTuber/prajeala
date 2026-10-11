@@ -10,6 +10,8 @@ uniform float uDetail;   // 0..1 noise erosion strength
 uniform float uGlow_;    // glow strength
 uniform float uSmoke;    // smoke opacity
 uniform int uView;       // debug: 0 normal, 1 heat, 2 smoke, 3 glow
+uniform float uDark;     // Mod Torță: darkness over the desktop (0 = off)
+uniform vec3 uTorch;     // torch centre (uv) and radius (screen heights); radius 0 = no torch
 out vec4 outColor;
 
 void main() {
@@ -48,6 +50,22 @@ void main() {
   float sa = uSmoke * smoothstep(0.02, 0.7, smoke) * (1.0 - alpha);
   rgb += vec3(0.07, 0.06, 0.06) * sa;
   alpha += sa;
+
+  // Mod Torță: everything is dark except what the torch and the fires light up.
+  if (uDark > 0.0) {
+    float flick = 0.93 + 0.07 * fbm(vec2(uTime * 2.3, 1.7));
+    vec2 d = vec2((vUv.x - uTorch.x) * uAspect, vUv.y - uTorch.y);
+    float r = uTorch.z * flick;
+    float lit = uTorch.z > 0.0 ? 1.0 - smoothstep(r * 0.5, r, length(d)) : 0.0;
+    lit = max(lit, smoothstep(0.03, 0.5, g) * 0.9 + smoothstep(0.05, 0.4, heat) * 0.6);
+    lit = clamp(lit, 0.0, 1.0);
+    // A warm fringe where the light fades into the dark.
+    float fringe = lit * (1.0 - lit) * 4.0;
+    vec3 warm = vec3(0.32, 0.12, 0.02) * fringe * uDark * 0.2;
+    float shade = uDark * (1.0 - lit) * (1.0 - alpha);
+    rgb += warm * (1.0 - alpha);
+    alpha += shade + max(warm.r, max(warm.g, warm.b)) * (1.0 - alpha);
+  }
 
   rgb = min(rgb, vec3(1.0));
   alpha = clamp(max(alpha, max(rgb.r, max(rgb.g, rgb.b))), 0.0, 1.0);

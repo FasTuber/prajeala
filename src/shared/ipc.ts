@@ -9,7 +9,9 @@
  * i.e. `local = global - display.bounds.{x,y}`. Global screen coordinates are
  * included for debugging and for cross-display effects.
  */
+import type { AudioFrame, AudioStatus } from './audio-contract';
 import type { BurnDoneReport, BurnMode, BurnStart } from './burn';
+import type { FocusFrame, FocusPhase } from './focus';
 import type { Lang } from './i18n';
 import type { LicenseActionResult, LicenseStatus } from './license';
 import type { ExternalLink } from './product';
@@ -132,6 +134,10 @@ export const IPC = {
   burnPrepare: 'prajeala:burn-prepare',
   burnStart: 'prajeala:burn-start',
   burnAbort: 'prajeala:burn-abort',
+  /** Ritmul Focului: one analysed audio frame (~60 Hz while listening). */
+  audio: 'prajeala:audio',
+  /** Termen limită: focus timer state (on change + every few seconds while running). */
+  focusTimer: 'prajeala:focus-timer',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
@@ -168,6 +174,8 @@ export interface PrajealaApi {
   onBurnPrepare(cb: () => void): Unsubscribe;
   onBurnStart(cb: (p: BurnStart) => void): Unsubscribe;
   onBurnAbort(cb: () => void): Unsubscribe;
+  onAudio(cb: (frame: AudioFrame) => void): Unsubscribe;
+  onFocusTimer(cb: (frame: FocusFrame) => void): Unsubscribe;
   burnReady(): void;
   burnDone(report: BurnDoneReport): void;
 
@@ -194,6 +202,42 @@ export interface UiState {
   product: { name: string; priceLabel: string; trialDays: number; hasSponsor: boolean };
   /** Power governor status for the settings window. */
   power: { sleeping: boolean; paused: boolean; eco: boolean; reason: string; gameDisplays: number };
+  /** Ritmul Focului capture state and a coarse live level (0..1) for the meter. */
+  audio: { status: AudioStatus; source: 'system' | 'mic' | null; level: number; bands: number[]; detail?: string };
+  /** Termen limită: the current focus session (remaining time at the moment the state was built). */
+  focus: { phase: FocusPhase; remainingMs: number; durationMs: number };
+}
+
+/** Settings window → main: focus timer controls. */
+export type FocusAction = { type: 'start'; minutes: number } | { type: 'pause' } | { type: 'resume' } | { type: 'cancel' };
+
+/**
+ * Media host (hidden window that captures and analyses audio) ↔ main.
+ * The host has its own preload (window.prajealaMedia) and session partition.
+ */
+export const MEDIA_IPC = {
+  // main → host
+  start: 'prajeala-media:start',
+  stop: 'prajeala-media:stop',
+  sensitivity: 'prajeala-media:sensitivity',
+  // host → main
+  frame: 'prajeala-media:frame',
+  status: 'prajeala-media:status',
+} as const;
+
+export interface MediaStartRequest {
+  source: 'system' | 'mic';
+  /** 0..1 */
+  sensitivity: number;
+}
+
+/** API exposed to the media host page on `window.prajealaMedia`. */
+export interface PrajealaMediaApi {
+  onStart(cb: (req: MediaStartRequest) => void): Unsubscribe;
+  onStop(cb: () => void): Unsubscribe;
+  onSensitivity(cb: (value: number) => void): Unsubscribe;
+  sendFrame(frame: AudioFrame): void;
+  sendStatus(report: { status: AudioStatus; source: 'system' | 'mic' | null; detail?: string }): void;
 }
 
 /** Which part of the window to bring forward when it opens. */
@@ -209,6 +253,9 @@ export const UI_IPC = {
   openLink: 'prajeala-ui:open-link',
   openSettingsFile: 'prajeala-ui:open-settings-file',
   burn: 'prajeala-ui:burn',
+  focusAction: 'prajeala-ui:focus-action',
+  /** main → window: live audio level + bands for the meter (~15 Hz, only while open). */
+  audioLevel: 'prajeala-ui:audio-level',
   testBurst: 'prajeala-ui:test-burst',
   ready: 'prajeala-ui:ready',
   // main → window
@@ -226,14 +273,17 @@ export interface PrajealaUiApi {
   openSettingsFile(): void;
   testBurst(): void;
   burn(mode: BurnMode): void;
+  focusAction(action: FocusAction): void;
   reportReady(report: { ok: boolean; error?: string }): void;
   onState(cb: (state: UiState) => void): Unsubscribe;
   onFocus(cb: (focus: UiFocus) => void): Unsubscribe;
+  onAudioLevel(cb: (level: { level: number; bands: number[] }) => void): Unsubscribe;
 }
 
 declare global {
   interface Window {
     prajeala: PrajealaApi;
     prajealaUi: PrajealaUiApi;
+    prajealaMedia: PrajealaMediaApi;
   }
 }

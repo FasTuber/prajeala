@@ -84,6 +84,12 @@ describe('normalizeSettings', () => {
       batteryMode: 'normal',
       gameMode: false,
       fireOverTaskbar: true,
+      audioSource: 'mic',
+      audioStyle: 'eq',
+      audioDrops: false,
+      audioSensitivity: 0.75,
+      focusMinutes: 50,
+      torch: true,
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });

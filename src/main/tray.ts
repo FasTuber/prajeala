@@ -15,7 +15,9 @@ import {
 } from '../shared/i18n';
 import type { HostCapabilities } from '../shared/ipc';
 import type { LicenseStatus } from '../shared/license';
+import { FOCUS_PRESETS_MIN, type FocusPhase } from '../shared/focus';
 import { isIntensityLocked, isPaletteLocked } from '../shared/pro';
+import { SCENES, SCENE_EMOJI, activeScene, sceneNeedsPro, scenePatch, type Scene } from '../shared/scenes';
 import { PRODUCT } from '../shared/product';
 import { CURSOR_MODES, INTENSITIES, PALETTES, type Settings } from '../shared/settings';
 import { createLogger } from './log';
@@ -40,6 +42,13 @@ export interface TrayActions {
   testBurst(): void;
   /** Arde tot (screen / focused window / an image the user picks). */
   burn(mode: 'screen' | 'window' | 'image'): void;
+  /** Termen limită: the focus timer (label = remaining time, '' when idle). */
+  focus: {
+    state(): { phase: FocusPhase; label: string };
+    start(minutes: number): void;
+    togglePause(): void;
+    cancel(): void;
+  };
   /** Opens the settings window; `pro` scrolls to the Prăjeală Pro card. */
   openSettingsWindow(focus?: 'pro'): void;
   openSettingsFile(): void;
@@ -136,6 +145,47 @@ export class TrayController {
       click: set({ cursorMode: value }),
     }));
 
+    const audioLabels = { off: t('audioOff'), system: t('audioSystem'), mic: t('audioMic') } as const;
+    const audio: MenuItemConstructorOptions[] = (['off', 'system', 'mic'] as const).map((value) => ({
+      label: audioLabels[value],
+      type: 'radio',
+      checked: s.audioSource === value,
+      click: set({ audioSource: value }),
+    }));
+
+    const sceneLabels: Record<Scene, string> = {
+      classic: t('sceneClassic'),
+      hearth: t('sceneHearth'),
+      subtle: t('sceneSubtle'),
+      party: t('sceneParty'),
+      inferno: t('sceneInferno'),
+      haunted: t('sceneHaunted'),
+    };
+    // Radio state follows what actually burns (scenes never touch the keys the power profile changes).
+    const current = activeScene(s);
+    const scenes: MenuItemConstructorOptions[] = SCENES.map((scene) => {
+      const label = `${SCENE_EMOJI[scene]} ${sceneLabels[scene]}`;
+      return sceneNeedsPro(scene) && !pro
+        ? locked(label)
+        : { label, type: 'radio', checked: current === scene, click: () => this.actions.updateSettings(scenePatch(scene, pro)) };
+    });
+
+    const fs = this.actions.focus.state();
+    const focusItems: MenuItemConstructorOptions[] =
+      fs.phase === 'running' || fs.phase === 'paused'
+        ? [
+            { label: fs.phase === 'paused' ? t('focusResume') : t('focusPause'), click: () => this.actions.focus.togglePause() },
+            { label: t('focusStop'), click: () => this.actions.focus.cancel() },
+          ]
+        : FOCUS_PRESETS_MIN.map((n) => ({
+            label: `${t('focusStart')}: ${t('focusMinutes', { n })}`,
+            enabled: fs.phase === 'idle',
+            click: () => {
+              this.actions.updateSettings({ focusMinutes: n });
+              this.actions.focus.start(n);
+            },
+          }));
+
     const fps: MenuItemConstructorOptions[] = FPS_CHOICES.map((value) => ({
       label: `${value} fps`,
       type: 'radio',
@@ -167,9 +217,12 @@ export class TrayController {
         click: () => this.actions.updateSettings({ enabled: !this.actions.getSettings().enabled }),
       },
       { type: 'separator' },
+      { label: `🎬 ${t('scenes')}`, submenu: scenes },
       { label: t('intensity'), submenu: intensity },
       { label: t('palette'), submenu: palette },
       { label: t('cursorFire'), submenu: cursor },
+      { label: `🎵 ${t('trayAudio')}`, submenu: audio },
+      { label: `⏳ ${fs.label ? t('trayFocusRunning', { time: fs.label }) : t('trayFocus')}`, submenu: focusItems },
       {
         label: caps.globalClicks ? t('clickBursts') : t('clickBurstsUnavailable'),
         type: 'checkbox',
@@ -185,6 +238,9 @@ export class TrayController {
         click: toggle('burnActiveWindow'),
       },
       { label: t('screenBottomFire'), type: 'checkbox', checked: s.screenBottomFire, click: toggle('screenBottomFire') },
+      pro
+        ? { label: `🔦 ${t('torch')}`, type: 'checkbox', checked: s.torch, click: () => this.actions.updateSettings({ torch: !this.actions.getSettings().torch }) }
+        : locked(`🔦 ${t('torch')}`),
       { label: t('sparks'), type: 'checkbox', checked: s.sparks, click: toggle('sparks') },
       { label: t('debugHud'), type: 'checkbox', checked: s.showDebugHud, click: toggle('showDebugHud') },
       { label: t('idleSleep'), type: 'checkbox', checked: s.idleSleep, click: toggle('idleSleep') },

@@ -16,10 +16,12 @@ import {
   type StringKey,
   type Translate,
 } from '../../shared/i18n';
+import { FOCUS_PRESETS_MIN, clampFocusMinutes, formatClock } from '../../shared/focus';
 import type { PrajealaUiApi, UiFocus, UiState } from '../../shared/ipc';
 import type { LicenseActionResult } from '../../shared/license';
 import { resolvePalette, type PaletteDefinition } from '../../shared/palettes';
 import { isIntensityLocked, isPaletteLocked } from '../../shared/pro';
+import { SCENES, SCENE_EMOJI, activeScene, sceneNeedsPro, scenePatch, seasonAt, type Scene } from '../../shared/scenes';
 import { CURSOR_MODES, INTENSITIES, PALETTES, SETTINGS_LIMITS, type Settings } from '../../shared/settings';
 import { createMockUiApi } from './mock';
 
@@ -95,8 +97,10 @@ class SettingsPage {
     this.root.replaceChildren(
       this.header(),
       this.welcomeCard(),
+      this.seasonCard(),
       this.proSection(),
       this.card(t('sectionFire'), [
+        this.labeled(t('scenes'), this.sceneControl()),
         this.toggleRow('enabled', t('fireOn'), null, () => true),
         this.labeled(t('intensity'), this.intensityControl()),
         this.labeled(t('palette'), this.paletteControl()),
@@ -106,7 +110,18 @@ class SettingsPage {
         this.toggleRow('screenBottomFire', t('screenBottomFire'), null, () => true),
         this.toggleRow('sparks', t('sparks'), null, () => true),
         this.typingRow(),
+        this.torchRow(),
         h('div', {}, [h('button', { class: 'btn', text: `🔥 ${t('testBurst')}`, on: { click: () => this.api.testBurst() } })]),
+      ]),
+      this.focusCard(),
+      this.card(t('sectionAudio'), [
+        h('p', { class: 'small muted', text: t('audioDesc') }),
+        this.labeled(t('audioSource'), this.audioSourceControl()),
+        this.labeled(t('audioStyle'), this.audioStyleControl()),
+        this.toggleRow('audioDrops', t('audioDrops'), null, () => true),
+        this.sensitivityRow(),
+        this.audioMeter(),
+        h('p', { class: 'small muted', text: `🔒 ${t('audioPrivacy')}` }),
       ]),
       this.card(t('sectionBurn'), [
         h('p', { class: 'small muted', text: t('burnDesc') }),
@@ -205,6 +220,8 @@ class SettingsPage {
       h('ul', { class: 'features' }, [
         h('li', { text: t('proFeaturePalettes', { count: PALETTES.length }) }),
         h('li', { text: t('proFeatureInferno') }),
+        h('li', { text: t('proFeatureTorch') }),
+        h('li', { text: t('proFeatureEq') }),
         h('li', { text: t('proFeatureMonitors') }),
         h('li', { text: t('proFeatureSupport') }),
       ]),
@@ -272,7 +289,8 @@ class SettingsPage {
       | 'showDebugHud'
       | 'idleSleep'
       | 'gameMode'
-      | 'fireOverTaskbar',
+      | 'fireOverTaskbar'
+      | 'audioDrops',
     label: string,
     unavailableNote: string | null,
     available: (s: UiState) => boolean,
@@ -293,12 +311,176 @@ class SettingsPage {
     return h('label', { class: 'row' }, [h('span', { class: 'label' }, [h('span', { text: label }), noteEl]), h('span', { class: 'switch' }, [input, h('span')])]);
   }
 
+  private audioSourceControl(): HTMLElement {
+    const t = this.t;
+    const labels = { off: t('audioOff'), system: t('audioSystem'), mic: t('audioMic') } as const;
+    return this.segmented(
+      ['off', 'system', 'mic'] as const,
+      (v) => labels[v],
+      (s) => s.settings.audioSource,
+      () => false,
+      (v) => void this.update({ audioSource: v }),
+      () => undefined,
+    );
+  }
+
+  private audioStyleControl(): HTMLElement {
+    const t = this.t;
+    const labels = { pulse: t('audioPulse'), eq: t('audioEq') } as const;
+    return this.segmented(
+      ['pulse', 'eq'] as const,
+      (v) => labels[v],
+      (s) => s.effective.audioStyle,
+      (v, s) => v === 'eq' && !s.license.pro,
+      (v) => void this.update({ audioStyle: v }),
+      () => this.showLocked(t('lockedEq')),
+      (v) => v === 'eq',
+    );
+  }
+
+  private sensitivityRow(): HTMLElement {
+    const value = h('span', { class: 'value' });
+    const input = h('input', {
+      attrs: { type: 'range', min: '0', max: '100', step: '5', 'aria-label': this.t('audioSensitivity') },
+      on: {
+        input: () => {
+          value.textContent = `${input.value}%`;
+        },
+        change: () => void this.update({ audioSensitivity: Number(input.value) / 100 }),
+      },
+    });
+    this.syncs.push((s) => {
+      const pct = Math.round(s.settings.audioSensitivity * 100);
+      if (document.activeElement !== input) input.value = String(pct);
+      value.textContent = `${pct}%`;
+    });
+    return h('div', { class: 'row' }, [h('span', { class: 'label' }, [h('span', { text: this.t('audioSensitivity') })]), h('span', { class: 'seg' }, [input, value])]);
+  }
+
+  /** 32-bar live meter + capture status (proof that the app hears something). */
+  private audioMeter(): HTMLElement {
+    const t = this.t;
+    const canvas = h('canvas', { class: 'meter', attrs: { width: '320', height: '40', 'aria-hidden': 'true' } });
+    const status = h('p', { class: 'small' });
+    let bands: number[] = [];
+    const draw = (): void => {
+      const g = canvas.getContext('2d');
+      if (!g) return;
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      const n = 32;
+      const w = canvas.width / n;
+      for (let i = 0; i < n; i++) {
+        const v = Math.max(0.03, Math.min(1, bands[i] ?? 0));
+        const bh = v * canvas.height;
+        const grad = g.createLinearGradient(0, canvas.height, 0, 0);
+        grad.addColorStop(0, '#ff5a1f');
+        grad.addColorStop(1, '#ffc24a');
+        g.fillStyle = grad;
+        g.fillRect(i * w + 1, canvas.height - bh, w - 2, bh);
+      }
+    };
+    this.api.onAudioLevel((l) => {
+      bands = l.bands;
+      draw();
+    });
+    this.syncs.push((s) => {
+      const a = s.audio;
+      const source = a.source === 'mic' ? t('audioMic') : t('audioSystem');
+      const text: Record<string, string> = {
+        off: t('audioStatusOff'),
+        starting: t('audioStatusStarting'),
+        ok: t('audioStatusOk', { source }),
+        silent: t('audioStatusSilent'),
+        unsupported: a.source === 'mic' ? t('audioStatusNoMic') : t('audioStatusUnsupported'),
+        denied: t('audioStatusDenied'),
+        error: t('audioStatusError', { detail: a.detail ?? '' }),
+      };
+      status.textContent = text[a.status] ?? '';
+      status.className = `small ${a.status === 'ok' ? '' : a.status === 'off' || a.status === 'starting' || a.status === 'silent' ? 'muted' : 'message err'}`.trim();
+      canvas.hidden = s.settings.audioSource === 'off';
+      if (canvas.hidden) {
+        bands = [];
+        draw();
+      }
+    });
+    draw();
+    return h('div', { class: 'stack' }, [canvas, status]);
+  }
+
   private burnWindowButton(): HTMLElement {
     const b = h('button', { class: 'btn', text: this.t('burnWindow'), on: { click: () => this.api.burn('window') } });
     this.syncs.push((s) => {
       b.toggleAttribute('disabled', !s.capabilities.activeWindow);
     });
     return b;
+  }
+
+  /** Termen limită: presets, a custom length, the live clock and the controls. */
+  private focusCard(): HTMLElement {
+    const t = this.t;
+    const clock = h('div', { class: 'focus-clock', attrs: { 'aria-live': 'polite' } });
+    const status = h('p', { class: 'small muted' });
+    const custom = h('input', {
+      class: 'num',
+      attrs: { type: 'number', min: '1', max: '180', step: '1', 'aria-label': t('focusCustom') },
+      on: { change: () => void this.update({ focusMinutes: clampFocusMinutes(custom.value, this.state.settings.focusMinutes) }) },
+    });
+    const start = h('button', {
+      class: 'btn primary',
+      text: `🔥 ${t('focusStart')}`,
+      on: { click: () => this.api.focusAction({ type: 'start', minutes: this.state.settings.focusMinutes }) },
+    });
+    const pause = h('button', {
+      class: 'btn',
+      on: { click: () => this.api.focusAction({ type: this.state.focus.phase === 'paused' ? 'resume' : 'pause' }) },
+    });
+    const stop = h('button', { class: 'btn', text: t('focusStop'), on: { click: () => this.api.focusAction({ type: 'cancel' }) } });
+
+    // main pushes the state every few seconds; the clock ticks locally in between.
+    let receivedAt = performance.now();
+    const paint = (): void => {
+      const f = this.state.focus;
+      const remaining = f.phase === 'running' ? Math.max(0, f.remainingMs - (performance.now() - receivedAt)) : f.remainingMs;
+      const active = f.phase === 'running' || f.phase === 'paused';
+      clock.textContent = active ? formatClock(remaining) : f.phase === 'blaze' ? '🔥 0:00' : formatClock(this.state.settings.focusMinutes * 60_000);
+      clock.classList.toggle('live', active);
+      status.textContent =
+        f.phase === 'running'
+          ? t('focusRunning', { time: formatClock(remaining) })
+          : f.phase === 'paused'
+            ? t('focusPaused', { time: formatClock(remaining) })
+            : f.phase === 'blaze'
+              ? t('focusBlaze')
+              : t('focusIdle');
+    };
+    this.syncs.push((s) => {
+      receivedAt = performance.now();
+      const active = s.focus.phase === 'running' || s.focus.phase === 'paused';
+      start.hidden = active;
+      start.disabled = s.focus.phase === 'blaze';
+      pause.hidden = !active;
+      stop.hidden = !active;
+      pause.textContent = s.focus.phase === 'paused' ? t('focusResume') : t('focusPause');
+      if (document.activeElement !== custom) custom.value = String(s.settings.focusMinutes);
+      paint();
+    });
+    window.setInterval(paint, 500);
+
+    const presets = this.segmented(
+      FOCUS_PRESETS_MIN,
+      (v) => t('focusMinutes', { n: v }),
+      (s) => FOCUS_PRESETS_MIN.find((v) => v === s.settings.focusMinutes) ?? null,
+      () => false,
+      (v) => void this.update({ focusMinutes: v }),
+      () => undefined,
+    );
+    return this.card(`⏳ ${t('sectionFocus')}`, [
+      h('p', { class: 'small muted', text: t('focusDesc') }),
+      clock,
+      h('div', { class: 'focus-row' }, [presets, h('label', { class: 'small muted focus-custom' }, [t('focusCustom'), custom])]),
+      h('div', { class: 'seg' }, [start, pause, stop]),
+      status,
+    ]);
   }
 
   private powerStatus(): HTMLElement {
@@ -337,6 +519,75 @@ class SettingsPage {
       (v) => void this.update({ batteryMode: v }),
       () => undefined,
     );
+  }
+
+  private sceneLabel(scene: Scene): string {
+    const key = `scene${scene[0]!.toUpperCase()}${scene.slice(1)}`;
+    return this.t(key as StringKey);
+  }
+
+  /** One click sets a whole mood; Pro scenes ask for Pro instead of half-applying. */
+  private sceneControl(): HTMLElement {
+    return this.segmented(
+      SCENES,
+      (v) => `${SCENE_EMOJI[v]} ${this.sceneLabel(v)}`,
+      (s) => activeScene(s.settings),
+      (v, s) => sceneNeedsPro(v) && !s.license.pro,
+      (v) => void this.update(scenePatch(v, this.state.license.pro)),
+      (v) => this.showLocked(`${this.t('lockedScene')} (${this.sceneLabel(v)})`),
+      (v) => sceneNeedsPro(v),
+    );
+  }
+
+  /** A seasonal suggestion (Sumedru, Halloween, winter) — hidden the rest of the year. */
+  private seasonCard(): HTMLElement {
+    const t = this.t;
+    const override = new URLSearchParams(location.search).get('today');
+    const today = override ? new Date(`${override}T12:00:00`) : new Date();
+    const season = seasonAt(Number.isNaN(today.getTime()) ? new Date() : today);
+    const card = h('section', { class: 'card season', attrs: { hidden: '' } });
+    if (!season) return card;
+    const text = season.event === 'sumedru' ? t('seasonSumedru') : season.event === 'halloween' ? t('seasonHalloween') : t('seasonWinter');
+    const emoji = season.event === 'halloween' ? '🎃' : season.event === 'sumedru' ? '🍂' : '❄️';
+    const scene = season.scene;
+    const btn = h('button', {
+      class: 'btn primary',
+      on: {
+        click: () => {
+          if (sceneNeedsPro(scene) && !this.state.license.pro) this.showLocked(`${t('lockedScene')} (${this.sceneLabel(scene)})`);
+          else void this.update(scenePatch(scene, this.state.license.pro));
+        },
+      },
+    });
+    this.syncs.push((s) => {
+      card.hidden = activeScene(s.settings) === scene;
+      btn.replaceChildren(`${SCENE_EMOJI[scene]} ${t('seasonTry', { scene: this.sceneLabel(scene) })}`, ...(sceneNeedsPro(scene) && s.license.tier !== 'pro' ? [h('span', { class: 'lock', text: 'PRO' })] : []));
+    });
+    card.append(h('p', { text: `${emoji} ${text}` }), h('div', {}, [btn]));
+    return card;
+  }
+
+  /** Mod Torță: Pro-only toggle. */
+  private torchRow(): HTMLElement {
+    const t = this.t;
+    const input = h('input', { attrs: { type: 'checkbox', role: 'switch', 'aria-label': t('torch') } });
+    input.addEventListener('change', () => {
+      if (!this.state.license.pro) {
+        input.checked = false;
+        this.showLocked(t('lockedTorch'));
+        return;
+      }
+      void this.update({ torch: input.checked });
+    });
+    const lock = h('span', { class: 'lock', text: 'PRO' });
+    this.syncs.push((s) => {
+      input.checked = s.license.pro && s.settings.torch;
+      lock.hidden = s.license.tier === 'pro';
+    });
+    return h('label', { class: 'row' }, [
+      h('span', { class: 'label' }, [h('span', {}, [`🔦 ${t('torch')}`, lock]), h('span', { class: 'note', text: t('torchNote') })]),
+      h('span', { class: 'switch' }, [input, h('span')]),
+    ]);
   }
 
   /** Typing fire: Pro-only toggle (the switch shows the lock instead of flipping without Pro). */

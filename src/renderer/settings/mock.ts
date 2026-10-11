@@ -37,8 +37,20 @@ export function createMockUiApi(search: string): PrajealaUiApi {
     displays: Number(params.get('displays') ?? 2) || 1,
     lang: pickLang(params.get('lang') ?? navigator.language),
     power: { sleeping: false, paused: false, eco: params.get('eco') === '1', reason: 'none', gameDisplays: 0 },
+    audio: { status: settings.audioSource === 'off' ? 'off' : 'ok', source: settings.audioSource === 'off' ? null : settings.audioSource, level: 0, bands: [] },
     product: { name: PRODUCT.name, priceLabel: PRODUCT.priceLabel, trialDays: PRODUCT.trialDays, hasSponsor: true },
+    focus: focusState(),
   });
+  // Termen limită: a fake session (?timer=running|paused for screenshots).
+  let focusEndsAt = params.get('timer') === 'running' ? performance.now() + 23 * 60_000 + 41_000 : 0;
+  let focusPausedLeft = params.get('timer') === 'paused' ? 12 * 60_000 : 0;
+  let focusDuration = 25 * 60_000;
+  const focusState = (): UiState['focus'] => {
+    if (focusPausedLeft > 0) return { phase: 'paused', remainingMs: focusPausedLeft, durationMs: focusDuration };
+    const left = focusEndsAt - performance.now();
+    return left > 0 ? { phase: 'running', remainingMs: left, durationMs: focusDuration } : { phase: 'idle', remainingMs: 0, durationMs: 0 };
+  };
+  const pushState = (): void => stateListeners.forEach((cb) => cb(state()));
   const focus = params.get('focus');
   if (focus === 'pro' || focus === 'welcome') {
     setTimeout(() => focusListeners.forEach((cb) => cb(focus)), 50);
@@ -67,10 +79,36 @@ export function createMockUiApi(search: string): PrajealaUiApi {
     openSettingsFile: () => console.info('[mock] open settings file'),
     testBurst: () => console.info('[mock] test burst'),
     burn: (mode) => console.info('[mock] burn', mode),
+    focusAction: (action) => {
+      const left = focusState().remainingMs;
+      if (action.type === 'start') {
+        focusDuration = action.minutes * 60_000;
+        focusEndsAt = performance.now() + focusDuration;
+        focusPausedLeft = 0;
+      } else if (action.type === 'pause' && focusEndsAt > performance.now()) {
+        focusPausedLeft = left;
+        focusEndsAt = 0;
+      } else if (action.type === 'resume' && focusPausedLeft > 0) {
+        focusEndsAt = performance.now() + focusPausedLeft;
+        focusPausedLeft = 0;
+      } else if (action.type === 'cancel') {
+        focusEndsAt = 0;
+        focusPausedLeft = 0;
+      }
+      pushState();
+    },
     reportReady: (r) => console.info('[mock] ready', r),
     onState: (cb) => {
       stateListeners.add(cb);
       return () => stateListeners.delete(cb);
+    },
+    onAudioLevel: (cb) => {
+      const timer = window.setInterval(() => {
+        if (settings.audioSource === 'off') return;
+        const t = performance.now() / 1000;
+        cb({ level: 0.5 + 0.4 * Math.sin(t * 6), bands: Array.from({ length: 32 }, (_, i) => Math.max(0, 0.6 + 0.4 * Math.sin(t * 5 + i * 0.5) - i / 50)) });
+      }, 66);
+      return () => window.clearInterval(timer);
     },
     onFocus: (cb) => {
       focusListeners.add(cb);

@@ -18,9 +18,14 @@ export const FREE_INTENSITIES: readonly Intensity[] = Object.freeze(['low', 'med
 /** How many displays a free install draws on (the primary one; displays are ordered primary-first). */
 export const FREE_MAX_DISPLAYS = 1;
 
-export type ProFeature = 'palettes' | 'inferno' | 'multiMonitor' | 'typingFire';
+export type ProFeature = 'palettes' | 'inferno' | 'multiMonitor' | 'typingFire' | 'audioEq' | 'torch';
 
-export const PRO_FEATURES: readonly ProFeature[] = Object.freeze(['palettes', 'inferno', 'multiMonitor', 'typingFire'] as ProFeature[]);
+export const PRO_FEATURES: readonly ProFeature[] = Object.freeze(['palettes', 'inferno', 'multiMonitor', 'typingFire', 'audioEq', 'torch'] as ProFeature[]);
+
+/** Ritmul Focului styles that need Pro. */
+export function isAudioStyleLocked(style: Settings['audioStyle'], pro: boolean): boolean {
+  return !pro && style === 'eq';
+}
 
 export const PRO_PALETTES: readonly Palette[] = Object.freeze(PALETTES.filter((p) => !FREE_PALETTES.includes(p)));
 
@@ -46,8 +51,12 @@ export function effectiveSettings(settings: Settings, pro: boolean): Settings {
   if (pro) return settings;
   const palette = isPaletteLocked(settings.palette, false) ? DEFAULT_SETTINGS.palette : settings.palette;
   const intensity = isIntensityLocked(settings.intensity, false) ? highestFreeIntensity() : settings.intensity;
-  if (palette === settings.palette && intensity === settings.intensity && !settings.typingFire) return settings;
-  return { ...settings, palette, intensity, typingFire: false };
+  const audioStyle = isAudioStyleLocked(settings.audioStyle, false) ? 'pulse' : settings.audioStyle;
+  // Every Pro-only field must be part of this identity check, or it leaks to free installs.
+  if (palette === settings.palette && intensity === settings.intensity && !settings.typingFire && audioStyle === settings.audioStyle && !settings.torch) {
+    return settings;
+  }
+  return { ...settings, palette, intensity, typingFire: false, audioStyle, torch: false };
 }
 
 /** Pro features the stored settings ask for that the current tier cannot deliver (for “unlock” hints). */
@@ -56,6 +65,8 @@ export function lockedFeaturesInUse(settings: Settings, pro: boolean, displayCou
   const out: ProFeature[] = [];
   if (isPaletteLocked(settings.palette, false)) out.push('palettes');
   if (isIntensityLocked(settings.intensity, false)) out.push('inferno');
+  if (isAudioStyleLocked(settings.audioStyle, false)) out.push('audioEq');
+  if (settings.torch) out.push('torch');
   if (displayCount > FREE_MAX_DISPLAYS) out.push('multiMonitor');
   return out;
 }
@@ -86,5 +97,7 @@ export function stripLockedChoices(patch: unknown, pro: boolean): Record<string,
   if (typeof p.intensity === 'string' && (INTENSITIES as readonly string[]).includes(p.intensity) && isIntensityLocked(p.intensity as Intensity, false)) {
     delete p.intensity;
   }
+  if (p.audioStyle === 'eq') delete p.audioStyle;
+  if (p.torch === true) delete p.torch;
   return p;
 }

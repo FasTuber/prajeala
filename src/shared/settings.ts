@@ -13,6 +13,14 @@ export type Intensity = (typeof INTENSITIES)[number];
 export const CURSOR_MODES = ['off', 'halo', 'trail', 'comet'] as const;
 export type CursorMode = (typeof CURSOR_MODES)[number];
 
+/** Where Ritmul Focului (audio-reactive fire) listens. */
+export const AUDIO_SOURCES = ['off', 'system', 'mic'] as const;
+export type AudioSource = (typeof AUDIO_SOURCES)[number];
+
+/** How the fire reacts to sound: pulses + fireballs (free) or an equaliser wall of fire (Pro). */
+export const AUDIO_STYLES = ['pulse', 'eq'] as const;
+export type AudioStyle = (typeof AUDIO_STYLES)[number];
+
 /** What to do on battery power: keep going, a lighter profile, or stop drawing. */
 export const BATTERY_MODES = ['normal', 'eco', 'pause'] as const;
 export type BatteryMode = (typeof BATTERY_MODES)[number];
@@ -53,6 +61,17 @@ export interface Settings {
   gameMode: boolean;
   /** Draw the screen-bottom fire over the taskbar/Dock instead of on top of it. */
   fireOverTaskbar: boolean;
+  /** Ritmul Focului: audio source (off by default — nothing listens unless asked). */
+  audioSource: AudioSource;
+  audioStyle: AudioStyle;
+  /** Big eruptions on music drops (rate-limited). */
+  audioDrops: boolean;
+  /** 0..1 — how strongly the fire follows the sound. */
+  audioSensitivity: number;
+  /** Termen limită: length of a focus session in minutes. */
+  focusMinutes: number;
+  /** Mod Torță: the screen goes dark and the cursor is a torch; fires light their surroundings. */
+  torch: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -76,6 +95,12 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   batteryMode: 'eco',
   gameMode: true,
   fireOverTaskbar: false,
+  audioSource: 'off',
+  audioStyle: 'pulse',
+  audioDrops: true,
+  audioSensitivity: 0.5,
+  focusMinutes: 25,
+  torch: false,
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
@@ -83,6 +108,8 @@ export const SETTINGS_LIMITS = Object.freeze({
   maxFps: { min: 15, max: 240 },
   pressureIterations: { min: 0, max: 64 },
   idleSleepSeconds: { min: 20, max: 1800 },
+  audioSensitivity: { min: 0, max: 1 },
+  focusMinutes: { min: 1, max: 180 },
 });
 
 /** Tunables that each intensity preset feeds into the simulation. */
@@ -220,6 +247,12 @@ export function normalizeSettings(input: unknown): Settings {
     batteryMode: pickEnum(src.batteryMode, BATTERY_MODES, d.batteryMode),
     gameMode: pickBool(src.gameMode, d.gameMode),
     fireOverTaskbar: pickBool(src.fireOverTaskbar, d.fireOverTaskbar),
+    audioSource: pickEnum(src.audioSource, AUDIO_SOURCES, d.audioSource),
+    audioStyle: pickEnum(src.audioStyle, AUDIO_STYLES, d.audioStyle),
+    audioDrops: pickBool(src.audioDrops, d.audioDrops),
+    audioSensitivity: pickNumber(src.audioSensitivity, d.audioSensitivity, L.audioSensitivity.min, L.audioSensitivity.max),
+    focusMinutes: Math.round(pickNumber(src.focusMinutes, d.focusMinutes, L.focusMinutes.min, L.focusMinutes.max)),
+    torch: pickBool(src.torch, d.torch),
   };
 }
 

@@ -6,7 +6,8 @@
  */
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
-import { UI_IPC, type UiFocus, type UiState } from '../shared/ipc';
+import { clampFocusMinutes } from '../shared/focus';
+import { UI_IPC, type FocusAction, type UiFocus, type UiState } from '../shared/ipc';
 import type { LicenseActionResult } from '../shared/license';
 import type { BurnMode } from '../shared/burn';
 import type { ExternalLink } from '../shared/product';
@@ -28,6 +29,7 @@ export interface SettingsWindowDeps {
   openSettingsFile(): void;
   testBurst(): void;
   burn(mode: BurnMode): void;
+  focusAction(action: FocusAction): void;
   /** The page booted (or failed to) — used by --smoke. */
   onReady?(report: { ok: boolean; error?: string }): void;
 }
@@ -100,6 +102,17 @@ export class SettingsWindow {
       log.error('could not load the settings page:', err);
       this.deps.onReady?.({ ok: false, error: `load failed: ${(err as Error).message ?? err}` });
     });
+  }
+
+  /** Live audio meter data (no-op while closed). */
+  sendAudioLevel(level: { level: number; bands: number[] }): void {
+    const win = this.win;
+    if (!win || win.isDestroyed() || !this.loaded || !win.isVisible()) return;
+    try {
+      win.webContents.send(UI_IPC.audioLevel, level);
+    } catch {
+      /* closing */
+    }
   }
 
   /** Sends the latest UiState to the page (no-op while closed). */
@@ -178,6 +191,12 @@ export class SettingsWindow {
     ipcMain.on(UI_IPC.burn, (event, mode: unknown) => {
       if (!this.fromUs(event)) return;
       if (mode === 'screen' || mode === 'window' || mode === 'image') this.deps.burn(mode);
+    });
+    ipcMain.on(UI_IPC.focusAction, (event, raw: unknown) => {
+      if (!this.fromUs(event) || !raw || typeof raw !== 'object') return;
+      const a = raw as { type?: unknown; minutes?: unknown };
+      if (a.type === 'start') this.deps.focusAction({ type: 'start', minutes: clampFocusMinutes(a.minutes) });
+      else if (a.type === 'pause' || a.type === 'resume' || a.type === 'cancel') this.deps.focusAction({ type: a.type });
     });
     ipcMain.on(UI_IPC.ready, (event, report: unknown) => {
       if (!this.fromUs(event)) return;

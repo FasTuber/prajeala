@@ -39,11 +39,15 @@ const api: PrajealaUiApi = {
   burn: (mode) => {
     ipcRenderer.send(UI_IPC.burn, String(mode));
   },
+  focusAction: (action) => {
+    ipcRenderer.send(UI_IPC.focusAction, action);
+  },
   reportReady: (report) => {
     ipcRenderer.send(UI_IPC.ready, { ok: report.ok === true, error: report.error ? String(report.error) : undefined });
   },
   onState: (cb) => subscribe<UiState>(UI_IPC.state, cb),
   onFocus: (cb) => subscribe<UiFocus>(UI_IPC.focus, cb),
+  onAudioLevel: (cb) => subscribe<{ level: number; bands: number[] }>(UI_IPC.audioLevel, cb),
 };
 
 contextBridge.exposeInMainWorld('prajealaUi', api);

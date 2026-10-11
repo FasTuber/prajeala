@@ -18,7 +18,10 @@ import type {
   Unsubscribe,
 } from '../../shared/ipc';
 import { CURSOR_MODES, INTENSITIES, PALETTES, mergeSettings, normalizeSettings, type Settings } from '../../shared/settings';
+import type { AudioFrame } from '../../shared/audio-contract';
 import type { BurnStart } from '../../shared/burn';
+import { startAudioDemo } from './AudioDemo';
+import { FocusClock, type FocusFrame } from '../../shared/focus';
 import type { RendererOptions } from '../app/options';
 import { SyntheticCursor } from './SyntheticCursor';
 
@@ -50,6 +53,20 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
   const burnPrepare = new Signal<null>();
   const burnStart = new Signal<BurnStart>();
   const burnAbort = new Signal<null>();
+  const audioSignal = new Signal<AudioFrame>();
+  if (options.audioDemo) startAudioDemo((f) => audioSignal.emit(f));
+  const focusSignal = new Signal<FocusFrame>();
+  if (options.focusDemo > 0) {
+    // The same FocusClock main uses, ticked here; frames go out every 250 ms.
+    const clock = new FocusClock();
+    clock.start(options.focusDemo * 1000, performance.now() - options.focusAt * 1000);
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      const event = clock.tick(now);
+      focusSignal.emit(clock.frame(now, 'GATA!'));
+      if (event === 'ended') window.clearInterval(timer);
+    }, 250);
+  }
   if (options.burnDemo) {
     const mode = options.burnDemo;
     window.setTimeout(() => {
@@ -208,6 +225,8 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     onTestBurst: (cb) => testBurst.on(cb),
     onKeyPress: () => () => undefined,
     onPower: () => () => undefined,
+    onAudio: (cb) => audioSignal.on(cb),
+    onFocusTimer: (cb) => focusSignal.on(cb),
     onBurnPrepare: (cb) => burnPrepare.on(() => cb()),
     onBurnStart: (cb) => burnStart.on(cb),
     onBurnAbort: (cb) => burnAbort.on(() => cb()),

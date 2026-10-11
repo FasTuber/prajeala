@@ -5,6 +5,7 @@
  * exactly the listener that was registered.
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type { FocusFrame } from '../shared/focus';
 import {
   IPC,
   type ActiveWindowEvent,
@@ -18,6 +19,7 @@ import {
   type RendererStats,
   type Unsubscribe,
 } from '../shared/ipc';
+import type { AudioFrame } from '../shared/audio-contract';
 import type { BurnDoneReport, BurnStart } from '../shared/burn';
 import type { Settings } from '../shared/settings';
 
@@ -49,6 +51,8 @@ const api: PrajealaApi = {
   onTestBurst: (cb) => subscribe<{ x: number; y: number; strength: number }>(IPC.testBurst, cb),
   onKeyPress: (cb) => subscribe<null>(IPC.keyPress, () => cb()),
   onPower: (cb) => subscribe<PowerFrame>(IPC.power, cb),
+  onAudio: (cb) => subscribe<AudioFrame>(IPC.audio, cb),
+  onFocusTimer: (cb) => subscribe<FocusFrame>(IPC.focusTimer, cb),
   onBurnPrepare: (cb) => subscribe<null>(IPC.burnPrepare, () => cb()),
   onBurnStart: (cb) => subscribe<BurnStart>(IPC.burnStart, cb),
   onBurnAbort: (cb) => subscribe<null>(IPC.burnAbort, () => cb()),

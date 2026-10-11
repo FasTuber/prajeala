@@ -22,6 +22,12 @@ export const settingsPreloadPath: string = fileURLToPath(new URL('../preload/set
 /** Settings / Pro window page copied by scripts/build.mjs. */
 export const settingsHtmlPath: string = fileURLToPath(new URL('../renderer/settings.html', import.meta.url));
 
+/** Preload of the hidden media host window (exposes `window.prajealaMedia`). */
+export const mediaPreloadPath: string = fileURLToPath(new URL('../preload/media.cjs', import.meta.url));
+
+/** Media host page (audio capture + analysis) copied by scripts/build.mjs. */
+export const mediaHtmlPath: string = fileURLToPath(new URL('../renderer/media.html', import.meta.url));
+
 /** `<app>/assets` (works both unpacked and inside app.asar). */
 export function assetsDir(): string {
   return path.join(app.getAppPath(), 'assets');

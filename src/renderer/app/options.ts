@@ -12,8 +12,11 @@
  *   ?view=heat|smoke|glow   show a raw simulation field instead of the composite
  *   ?losectx=ms   lose the WebGL context after `ms` and restore it 800 ms later
  *   ?burn=screen|window   mock only: burn a generated fake desktop 1 s after load (Arde tot)
+ *   ?audio=demo   mock only: synthetic 120 BPM music for Ritmul Focului (with audioSource/audioStyle overrides)
+ *   ?focus=S      mock only: start an S-second Termen limită session on load (fuse, countdown, blaze)
+ *   ?focusAt=S    mock only: …already S seconds in (screenshots of the late fuse)
  * Mock-only settings overrides: enabled, intensity, palette, cursorMode (or cursor),
- * bottom, window, sparks, bursts, simScale, fps, pressure.
+ * bottom, window, sparks, bursts, simScale, fps, pressure, torch (Mod Torță).
  */
 import type { Settings } from '../../shared/settings';
 
@@ -34,6 +37,11 @@ export interface RendererOptions {
   loseContextAt: number;
   /** Mock only: start an Arde tot burn of a generated desktop. */
   burnDemo: 'screen' | 'window' | null;
+  /** Mock only: feed a synthetic 120 BPM track to Ritmul Focului. */
+  audioDemo: boolean;
+  /** Mock only: a focus session of this many seconds (0 = none), started `focusAt` seconds ago. */
+  focusDemo: number;
+  focusAt: number;
   settingsOverrides: Partial<Settings>;
 }
 
@@ -62,6 +70,10 @@ export function parseOptions(search: string): RendererOptions {
   if (params.has('pressure')) overrides.pressureIterations = Number(params.get('pressure'));
   if (params.has('hud')) overrides.showDebugHud = flag(params, 'hud');
   if (params.has('enabled')) overrides.enabled = flag(params, 'enabled');
+  if (params.has('torch')) overrides.torch = flag(params, 'torch');
+  if (params.get('audio') === 'demo') overrides.audioSource = 'system';
+  const audioStyle = params.get('audioStyle');
+  if (audioStyle) overrides.audioStyle = audioStyle as Settings['audioStyle'];
   let pin: RendererOptions['pin'] = null;
   const pinRaw = params.get('pin');
   if (pinRaw) {
@@ -86,6 +98,9 @@ export function parseOptions(search: string): RendererOptions {
     warmup: Number.isFinite(warmup) ? Math.max(0, Math.min(3600, Math.floor(warmup))) : 0,
     view: VIEWS[params.get('view') ?? ''] ?? 0,
     loseContextAt: Math.max(0, Number(params.get('losectx') ?? 0) || 0),
+    audioDemo: params.get('audio') === 'demo',
+    focusDemo: Math.max(0, Math.min(3600, Number(params.get('focus')) || 0)),
+    focusAt: Math.max(0, Number(params.get('focusAt')) || 0),
     burnDemo: params.get('burn') === 'window' ? 'window' : params.has('burn') && flag(params, 'burn') ? 'screen' : null,
     settingsOverrides: overrides,
   };

@@ -3,6 +3,8 @@
  * wires input → emitters → simulation → render passes. Never throws out of
  * init(); failures are reported through `reportReady({ ok: false })`.
  */
+import type { AudioFrame } from '../../shared/audio-contract';
+import { sanitizeFocusFrame, type FocusFrame } from '../../shared/focus';
 import type {
   ActiveWindowEvent,
   PowerFrame,
@@ -25,6 +27,9 @@ import {
 import type { BurnStart } from '../../shared/burn';
 import { BurnLayer } from '../burn/BurnLayer';
 import { FireCursor } from '../cursor/FireCursor';
+import { AudioState } from '../audio/AudioState';
+import { AudioEmitter } from '../emitters/AudioEmitter';
+import { FocusEmitter } from '../emitters/FocusEmitter';
 import { BurstEmitter } from '../emitters/BurstEmitter';
 import { CursorEmitter } from '../emitters/CursorEmitter';
 import { EmitterContext, type Emitter } from '../emitters/EmitterContext';
@@ -59,6 +64,9 @@ export interface AppEnvironment {
 const MAX_DT = 1 / 30;
 /** Without new heat or sparks for this long the field is invisible: stop rendering until something happens. */
 const COLD_AFTER_MS = 3000;
+/** Mod Torță: how dark the desktop gets, and the torch radius (screen heights). */
+const TORCH_DARKNESS = 0.9;
+const TORCH_RADIUS = 0.24;
 const IDLE_INTERVAL_MS = 250;
 const HUD_INTERVAL_MS = 250;
 
@@ -76,6 +84,10 @@ export class App {
   private readonly ctx: EmitterContext;
   private readonly cursorEmitter: CursorEmitter;
   private readonly burstEmitter: BurstEmitter;
+  private readonly audio = new AudioState();
+  private readonly audioEmitter: AudioEmitter;
+  private readonly focusEmitter: FocusEmitter;
+  private baseBuoyancy = 0.6;
   private readonly windowEmitter = new WindowFrameEmitter();
   private readonly bottomEmitter = new ScreenBottomEmitter();
   private readonly emitters: Emitter[];
@@ -133,7 +145,10 @@ export class App {
     this.ctx = new EmitterContext(this.queue, this.sparks);
     this.cursorEmitter = new CursorEmitter(this.cursor, this.ctx);
     this.burstEmitter = new BurstEmitter(this.ctx);
-    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.bottomEmitter];
+    this.audioEmitter = new AudioEmitter(this.audio, this.burstEmitter);
+    this.focusEmitter = new FocusEmitter(this.burstEmitter);
+    // Audio runs before the bottom fire: its EQ wall replaces it while active.
+    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.focusEmitter, this.audioEmitter, this.bottomEmitter];
     this.warmupPending = options.warmup;
     this.look.view = options.view;
   }
@@ -329,6 +344,7 @@ export class App {
     if (next.fireOverTaskbar !== prev.fireOverTaskbar) this.ctx.floor = this.floorY(this.cssHeight);
     this.wake();
     if (!next.sparks) this.sparks.clear();
+    if (next.audioSource === 'off' && prev.audioSource !== 'off') this.audio.reset();
     if (next.enabled && !prev.enabled) {
       this.clearedWhileDisabled = false;
       this.lastTickAt = 0;
@@ -346,6 +362,7 @@ export class App {
     s.velocityDissipation = Math.pow(p.velocityDissipation, 8);
     s.cooling = (1 - p.heatDissipation) * 35;
     s.buoyancy = p.buoyancy * 1.1;
+    this.baseBuoyancy = s.buoyancy;
     s.curl = p.curl * 2;
     s.maxSpeed = 1.0 + p.buoyancy * 0.35;
     s.pressureIterations = this.settings.pressureIterations;
@@ -363,6 +380,8 @@ export class App {
       api.onTestBurst((p) => this.handleTestBurst(p)),
       api.onKeyPress(() => this.handleKeyPress()),
       api.onPower((p) => this.handlePower(p)),
+      api.onAudio((f) => this.handleAudio(f)),
+      api.onFocusTimer((f) => this.handleFocusTimer(f)),
       api.onBurnPrepare(() => this.handleBurnPrepare()),
       api.onBurnStart((p) => void this.handleBurnStart(p)),
       api.onBurnAbort(() => this.handleBurnAbort()),
@@ -372,7 +391,7 @@ export class App {
   private handleCursor(e: CursorEvent): void {
     this.cursor.push(e);
     if (this.power.sleeping) return;
-    if (e.inside && this.settings.cursorMode !== 'off') this.wake();
+    if (e.inside && (this.settings.cursorMode !== 'off' || this.settings.torch)) this.wake();
     if (this.settings.enabled && this.gpu && !this.contextLost) this.cursorEmitter.onMove(e);
   }
 
@@ -380,6 +399,18 @@ export class App {
     const wasSleeping = this.power.sleeping;
     this.power = { sleeping: p.sleeping === true };
     if (wasSleeping && !this.power.sleeping) this.wake();
+  }
+
+  private handleAudio(frame: AudioFrame): void {
+    if (this.settings.audioSource === 'off') return;
+    this.audio.push(frame);
+    if (!frame.silent && (frame.kick > 0 || frame.loud > 0.08)) this.wake();
+  }
+
+  private handleFocusTimer(frame: FocusFrame): void {
+    const f = sanitizeFocusFrame(frame);
+    this.focusEmitter.set(f, performance.now());
+    if (f.phase !== 'idle' || f.cancelled) this.wake();
   }
 
   // ───────────────────────────── Arde tot ─────────────────────────────
@@ -681,6 +712,7 @@ export class App {
   /** Goes cold once nothing has been lit for COLD_AFTER_MS and no spark is alive. */
   private checkCold(now: number): void {
     if (this.lastHeatAt === 0) this.lastHeatAt = now;
+    if (this.look.dark > 0) return; // Mod Torță: the darkness itself must keep being drawn
     if (this.sparks.count > 0 || now - this.lastHeatAt < COLD_AFTER_MS) return;
     this.cold = true;
     this.clearedWhileDisabled = false;
@@ -710,11 +742,19 @@ export class App {
     this.ctx.dt = dt;
     this.ctx.time = this.time;
     this.driveSynthetic();
+    this.audio.tick(dt);
     for (const e of this.emitters) {
-      // Asleep (user away): only events already in flight keep burning; nothing new is lit.
-      if (this.power.sleeping && e !== this.burstEmitter) continue;
+      // Asleep (user away): only events already in flight and a running focus timer keep burning.
+      if (this.power.sleeping && e !== this.burstEmitter && e !== this.focusEmitter) continue;
+      if (e === this.bottomEmitter && this.audioEmitter.wallActive) continue;
       e.update(this.ctx);
     }
+    // Ritmul Focului: loudness brightens the glow, bass lifts the flames.
+    const listening = this.settings.audioSource !== 'off';
+    const sens = this.settings.audioSensitivity;
+    this.look.glow = DEFAULT_LOOK.glow * (listening ? this.audioEmitter.glowBoost(sens) : 1);
+    this.simParams.buoyancy = this.baseBuoyancy * (listening ? this.audioEmitter.buoyancyBoost(sens) : 1);
+    this.updateTorch(dt, g.burn.active);
     const now = performance.now();
     if (g.burn.active) {
       g.burn.update(dt, g.sim.temperatureTexture, now);
@@ -724,6 +764,23 @@ export class App {
     if (this.queue.count > 0) this.lastHeatAt = now;
     if (this.settings.sparks || g.burn.active) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
     g.sim.step(dt, this.simParams, g.burn.source(now));
+  }
+
+  /** Mod Torță: fades the darkness in/out and follows the cursor with the torch. */
+  private updateTorch(dt: number, burning: boolean): void {
+    const s = this.settings;
+    const target = s.torch && s.enabled && !this.power.sleeping && !burning && !this.capturing ? TORCH_DARKNESS : 0;
+    const look = this.look;
+    look.dark += (target - look.dark) * Math.min(1, dt * 2.5);
+    if (Math.abs(target - look.dark) < 0.003) look.dark = target;
+    const c = this.cursor;
+    if (c.hasPosition && c.inside) {
+      look.torchX = c.x / Math.max(1, this.cssWidth);
+      look.torchY = 1 - c.y / Math.max(1, this.cssHeight);
+      look.torchRadius = TORCH_RADIUS;
+    } else {
+      look.torchRadius = 0;
+    }
   }
 
   private render(): void {

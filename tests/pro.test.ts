@@ -112,6 +112,34 @@ describe('product config', () => {
   });
 });
 
+describe('Ritmul Focului gating', () => {
+  it('keeps the EQ wall for Pro and falls back to pulses without it', () => {
+    const stored = normalizeSettings({ audioSource: 'system', audioStyle: 'eq' });
+    expect(effectiveSettings(stored, true).audioStyle).toBe('eq');
+    const free = effectiveSettings(stored, false);
+    expect(free.audioStyle).toBe('pulse');
+    expect(free.audioSource).toBe('system');
+    expect(stripLockedChoices({ audioStyle: 'eq', audioDrops: true }, false)).toEqual({ audioDrops: true });
+  });
+  it('the early-return identity check covers every Pro field (regression)', () => {
+    // A free install with only a Pro audio style stored must still get a corrected object.
+    const onlyEq = normalizeSettings({ audioStyle: 'eq' });
+    expect(effectiveSettings(onlyEq, false)).not.toBe(onlyEq);
+  });
+});
+
+describe('Mod Torță gating', () => {
+  it('is Pro only, stripped from free patches and reported as locked', () => {
+    const stored = normalizeSettings({ torch: true });
+    expect(effectiveSettings(stored, true).torch).toBe(true);
+    expect(effectiveSettings(stored, false).torch).toBe(false);
+    expect(effectiveSettings(stored, false)).not.toBe(stored);
+    expect(stripLockedChoices({ torch: true, sparks: false }, false)).toEqual({ sparks: false });
+    expect(stripLockedChoices({ torch: false }, false)).toEqual({ torch: false });
+    expect(lockedFeaturesInUse(stored, false, 1)).toContain('torch');
+  });
+});
+
 describe('custom palette and colours', () => {
   it('normalizes custom colours and keeps them out of free installs', async () => {
     const { customPalette, resolvePalette, PALETTE_DEFINITIONS } = await import('../src/shared/palettes');

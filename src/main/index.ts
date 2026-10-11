@@ -7,8 +7,10 @@
  * This is a tray application: closing every window never quits; only the
  * tray, the global shortcut or the smoke runner do.
  */
-import { app, dialog, net, screen, shell } from 'electron';
+import { app, dialog, net, Notification, screen, shell } from 'electron';
+import type { AudioStatusReport } from '../shared/audio-contract';
 import type { BurnMode } from '../shared/burn';
+import { formatClock } from '../shared/focus';
 import { pickLang, translator } from '../shared/i18n';
 import {
   IPC,
@@ -30,11 +32,15 @@ import { rectCenter, rectContainsPoint, rectsIntersect, toLocalPoint, toLocalRec
 import { createLogger, setVerbose } from './log';
 import { LicenseManager } from './license/license-manager';
 import { BurnController } from './burn';
+import { FocusService } from './focus-service';
+import { MediaHost, hardenDefaultSession } from './media-host';
 import { OverlayManager } from './overlay-manager';
 import { PowerGovernor } from './power-governor';
 import {
   appIconPath,
   licenseFilePath,
+  mediaHtmlPath,
+  mediaPreloadPath,
   preloadPath,
   rendererHtmlPath,
   settingsFilePath,
@@ -61,6 +67,12 @@ if (cli.smoke || cli.softwareGl) {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('disable-gpu-sandbox');
 }
+if (process.platform === 'linux') {
+  // Ritmul Focului: lets getDisplayMedia capture the PulseAudio/PipeWire monitor (system sound).
+  // Merged with any --enable-features given on the command line (a second switch would replace it).
+  const existing = app.commandLine.getSwitchValue('enable-features');
+  app.commandLine.appendSwitch('enable-features', [existing, 'PulseaudioLoopbackForScreenShare'].filter(Boolean).join(','));
+}
 if (process.platform === 'linux' && cli.linuxTransparentVisuals) {
   // Legacy X11 setups: transparent windows only work with these two switches.
   app.commandLine.appendSwitch('enable-transparent-visuals');
@@ -69,6 +81,8 @@ if (process.platform === 'linux' && cli.linuxTransparentVisuals) {
 
 interface Runtime {
   store: SettingsStore;
+  mediaHost: MediaHost;
+  focus: FocusService;
   governor: PowerGovernor;
   license: LicenseManager;
   settingsWindow: SettingsWindow;
@@ -132,6 +146,9 @@ if (!app.requestSingleInstanceLock()) {
 async function main(): Promise<void> {
   log.info(`Prăjeală ${app.getVersion()} — electron ${process.versions.electron}, ${process.platform}/${process.arch}`);
   log.debug('cli', cli);
+
+  // Overlays and the settings window never need camera/mic/notifications…: deny all on their session.
+  hardenDefaultSession();
 
   const store = new SettingsStore({ filePath: settingsFilePath(), persist: !cli.smoke });
   store.load();
@@ -301,6 +318,89 @@ async function main(): Promise<void> {
     }
   };
 
+  // ── Ritmul Focului ───────────────────────────────────────────────────
+  const mediaHost = new MediaHost({ preloadPath: mediaPreloadPath, htmlPath: mediaHtmlPath });
+  let audioStatus: AudioStatusReport = { status: 'off', source: null };
+  let audioRunning: 'system' | 'mic' | null = null;
+  /**
+   * A source that just failed (denied / unsupported / error). It is not retried on
+   * unrelated settings changes, only once the user picks something else (or off) and
+   * comes back to it.
+   */
+  let audioFailed: 'system' | 'mic' | null = null;
+  let lastLevelPush = 0;
+  const syncAudio = (): void => {
+    const s = store.get();
+    const want = s.audioSource !== 'off' && s.enabled && !governor.current.paused && !cli.smoke ? s.audioSource : null;
+    if (want !== audioFailed) audioFailed = null;
+    if (want && want === audioFailed) return;
+    if (want && want !== audioRunning) {
+      audioRunning = want;
+      mediaHost.start({ source: want, sensitivity: s.audioSensitivity });
+    } else if (want) {
+      mediaHost.setSensitivity(s.audioSensitivity);
+    } else if (!want && (audioRunning || audioStatus.status !== 'off')) {
+      // Also after a failure: closes the idle capture page and clears the error shown.
+      audioRunning = null;
+      mediaHost.stop();
+    }
+  };
+  mediaHost.on('frame', (frame) => {
+    overlays.sendToAll(IPC.audio, () => frame);
+    // Music playing counts as presence: the fire keeps dancing while you listen.
+    if (!frame.silent && frame.loud > 0.12) governor.noteInput();
+    const now = Date.now();
+    if (now - lastLevelPush >= 66) {
+      lastLevelPush = now;
+      settingsWindow.sendAudioLevel({ level: frame.loud, bands: frame.bands });
+    }
+  });
+  mediaHost.on('status', (report) => {
+    audioStatus = report;
+    if ((report.status === 'denied' || report.status === 'unsupported' || report.status === 'error') && audioRunning) {
+      audioFailed = audioRunning;
+      audioRunning = null;
+    }
+    log.info(`audio: ${report.status}${report.source ? ` (${report.source})` : ''}${report.detail ? ` — ${report.detail}` : ''}`);
+    settingsWindow.pushState();
+  });
+
+  // ── Termen limită ────────────────────────────────────────────────────
+  const focus = new FocusService(() => translator(lang)('focusDoneWord'));
+  const startFocus = (minutes: number): void => {
+    if (!store.get().enabled) updateSettings({ enabled: true });
+    focus.start(minutes);
+    log.info(`focus: ${minutes} min fuse lit`);
+  };
+  /** Tray label: whole minutes (seconds in the last one), so the menu is rebuilt about once a minute. */
+  const focusTrayLabel = (): string => {
+    if (focus.phase === 'idle') return '';
+    const ms = focus.remainingMs;
+    return ms < 60_000 ? formatClock(ms) : `${Math.ceil(ms / 60_000)} min`;
+  };
+  let lastFocusTray = '';
+  focus.on('frame', (frame) => {
+    overlays.sendToAll(IPC.focusTimer, () => frame);
+    const key = `${frame.phase}|${focusTrayLabel()}`;
+    if (key !== lastFocusTray) {
+      lastFocusTray = key;
+      runtime?.tray.refresh();
+    }
+    runtime?.settingsWindow.pushState();
+  });
+  focus.on('finished', ({ durationMs }) => {
+    log.info('focus: time is up');
+    if (cli.smoke || !Notification.isSupported()) return;
+    const tt = translator(lang);
+    const icon = appIconPath();
+    new Notification({
+      title: tt('focusDoneTitle'),
+      body: tt('focusDoneBody', { n: Math.round(durationMs / 60_000) }),
+      silent: false,
+      ...(icon ? { icon } : {}),
+    }).show();
+  });
+
   const uiState = (): UiState => ({
     settings: store.get(),
     effective: effective(),
@@ -311,6 +411,14 @@ async function main(): Promise<void> {
     displays: screen.getAllDisplays().length,
     lang,
     power: { ...governor.current, gameDisplays: gameDisplays.size },
+    audio: {
+      status: audioStatus.status,
+      source: audioStatus.source,
+      level: 0,
+      bands: [],
+      ...(audioStatus.detail ? { detail: audioStatus.detail } : {}),
+    },
+    focus: { phase: focus.phase, remainingMs: focus.remainingMs, durationMs: focus.durationMs },
     product: {
       name: PRODUCT.name,
       priceLabel: PRODUCT.priceLabel,
@@ -337,6 +445,12 @@ async function main(): Promise<void> {
     openSettingsFile,
     testBurst: () => testBurst(1),
     burn: (mode) => void startBurn(mode),
+    focusAction: (action) => {
+      if (action.type === 'start') startFocus(action.minutes);
+      else if (action.type === 'pause') focus.pause();
+      else if (action.type === 'resume') focus.resume();
+      else focus.cancel();
+    },
     onReady: (report) => smokeRunner?.uiReady(report),
   });
 
@@ -357,12 +471,18 @@ async function main(): Promise<void> {
     lang,
     testBurst: () => testBurst(1),
     burn: (mode) => void startBurn(mode),
+    focus: {
+      state: () => ({ phase: focus.phase, label: focusTrayLabel() }),
+      start: startFocus,
+      togglePause: () => focus.togglePause(),
+      cancel: () => focus.cancel(),
+    },
     openSettingsWindow: (focus) => settingsWindow.open(focus ?? null),
     openSettingsFile,
     quit,
   });
 
-  runtime = { store, governor, license, settingsWindow, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
+  runtime = { store, mediaHost, focus, governor, license, settingsWindow, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
 
   // ── Settings → everything else ─────────────────────────────────────────
   let lastEnabled: boolean | null = null;
@@ -384,10 +504,12 @@ async function main(): Promise<void> {
     governor.evaluate();
     broadcastSettings();
     updateGameMode();
+    syncAudio();
   });
   governor.onChange((power) => {
     overlays.sendToAll(IPC.power, () => ({ sleeping: power.sleeping }));
     broadcastSettings(); // eco profile, paused visibility, tray tooltip, settings window
+    syncAudio();
   });
   license.onChange((status) => {
     log.info(`licence: ${status.tier}${status.source ? ` (${status.source})` : ''}`);
@@ -432,6 +554,7 @@ async function main(): Promise<void> {
       overlays.sendTo<ActiveWindowEvent>(overlay, IPC.activeWindow, toActiveWindowEvent(lastActiveWindow, overlay.info.bounds));
     }
     overlays.sendTo(overlay, IPC.power, { sleeping: governor.current.sleeping });
+    if (focus.phase !== 'idle') overlays.sendTo(overlay, IPC.focusTimer, focus.frame);
   });
 
   // ── Smoke mode ─────────────────────────────────────────────────────────
@@ -453,7 +576,11 @@ async function main(): Promise<void> {
     // Arde tot end to end: capture the (Xvfb) screen, burn it, get the overlay's report.
     overlays.once('ready', () => {
       setTimeout(() => {
-        void burn.start('screen', { durationMs: 2500 }).then((outcome) => smoke.burnResult(outcome));
+        void burn.start('screen', { durationMs: 2500 }).then((outcome) => {
+          smoke.burnResult(outcome);
+          // Termen limită end to end (fuse, countdown, blaze) — must not disturb the run.
+          focus.start(3 / 60);
+        });
       }, 800);
     });
     // The settings page must boot too (hidden: nobody looks at CI screens).
@@ -475,7 +602,8 @@ async function main(): Promise<void> {
     quit,
   });
   license.start();
-  if (!cli.smoke) governor.start(); // smoke runs on an idle Xvfb display: never let it sleep
+  if (!cli.smoke) governor.start();
+  syncAudio(); // smoke runs on an idle Xvfb display: never let it sleep
 
   // First launch: say hello (a tray-only app is otherwise invisible until something burns).
   // Without a tray (some Linux desktops) the window is the only way to reach the settings.
@@ -537,6 +665,8 @@ function shutdown(): void {
   log.debug('shutting down');
   unregisterShortcuts();
   rt.governor.stop();
+  rt.mediaHost.destroy();
+  rt.focus.destroy();
   rt.license.stop();
   rt.settingsWindow.destroy();
   rt.cursor.stop();

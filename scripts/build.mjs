@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Bundles the three Electron entry points with esbuild.
+// Bundles the Electron entry points (main, preloads, renderer pages) with esbuild.
 //   node scripts/build.mjs          one-shot build
 //   node scripts/build.mjs --watch  rebuild on change
 import { build, context } from 'esbuild';
@@ -62,6 +62,23 @@ const targets = [
   },
   {
     ...common,
+    entryPoints: ['src/preload/media.ts'],
+    outfile: 'dist/preload/media.cjs',
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['electron'],
+  },
+  {
+    ...common,
+    entryPoints: ['src/renderer/media/main.ts'],
+    outfile: 'dist/renderer/media.js',
+    platform: 'browser',
+    format: 'esm',
+    target: 'chrome134',
+  },
+  {
+    ...common,
     entryPoints: ['src/renderer/settings/main.ts'],
     outfile: 'dist/renderer/settings.js',
     platform: 'browser',
@@ -84,6 +101,8 @@ function copyStatic() {
   cpSync(resolve(root, 'src/renderer/index.html'), resolve(root, 'dist/renderer/index.html'));
   const settingsHtml = resolve(root, 'src/renderer/settings.html');
   if (existsSync(settingsHtml)) cpSync(settingsHtml, resolve(root, 'dist/renderer/settings.html'));
+  const mediaHtml = resolve(root, 'src/renderer/media.html');
+  if (existsSync(mediaHtml)) cpSync(mediaHtml, resolve(root, 'dist/renderer/media.html'));
 }
 
 if (watch) {
