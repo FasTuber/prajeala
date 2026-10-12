@@ -58,6 +58,9 @@ describe('isDesktopShell', () => {
     expect(isDesktopShell('explorer.exe', 'Program Manager', 'win32')).toBe(true);
     expect(isDesktopShell('Windows Explorer', 'Documents', 'win32')).toBe(false); // a folder window
     expect(isDesktopShell('Steam', '', 'win32')).toBe(false);
+    expect(isDesktopShell('Explorateur Windows', '', 'win32', 'C:\\Windows\\explorer.exe')).toBe(true);
+    expect(isDesktopShell('Windows-Explorer', 'Program Manager', 'win32')).toBe(true);
+    expect(isDesktopShell('Game', '', 'win32', 'D:\\Games\\game.exe')).toBe(false);
     expect(isDesktopShell('Finder', '', 'darwin')).toBe(true);
     expect(isDesktopShell('Finder', 'Downloads', 'darwin')).toBe(false);
     expect(isDesktopShell('xfdesktop', 'Desktop', 'linux')).toBe(true);

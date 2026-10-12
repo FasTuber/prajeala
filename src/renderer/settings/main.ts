@@ -423,12 +423,19 @@ class SettingsPage {
     const custom = h('input', {
       class: 'num',
       attrs: { type: 'number', min: '1', max: '180', step: '1', 'aria-label': t('focusCustom') },
-      on: { change: () => void this.update({ focusMinutes: clampFocusMinutes(custom.value, this.state.settings.focusMinutes) }) },
+      on: {
+        change: () => {
+          const minutes = clampFocusMinutes(custom.value, this.state.settings.focusMinutes);
+          custom.value = String(minutes); // a cleared or junk entry snaps back
+          void this.update({ focusMinutes: minutes });
+        },
+      },
     });
     const start = h('button', {
       class: 'btn primary',
       text: `🔥 ${t('focusStart')}`,
-      on: { click: () => this.api.focusAction({ type: 'start', minutes: this.state.settings.focusMinutes }) },
+      // Read the field itself: its change event may still be on its way to main.
+      on: { click: () => this.api.focusAction({ type: 'start', minutes: clampFocusMinutes(custom.value, this.state.settings.focusMinutes) }) },
     });
     const pause = h('button', {
       class: 'btn',
@@ -531,7 +538,7 @@ class SettingsPage {
     return this.segmented(
       SCENES,
       (v) => `${SCENE_EMOJI[v]} ${this.sceneLabel(v)}`,
-      (s) => activeScene(s.settings),
+      (s) => activeScene(s.effective),
       (v, s) => sceneNeedsPro(v) && !s.license.pro,
       (v) => void this.update(scenePatch(v, this.state.license.pro)),
       (v) => this.showLocked(`${this.t('lockedScene')} (${this.sceneLabel(v)})`),
@@ -560,7 +567,7 @@ class SettingsPage {
       },
     });
     this.syncs.push((s) => {
-      card.hidden = activeScene(s.settings) === scene;
+      card.hidden = activeScene(s.effective) === scene;
       btn.replaceChildren(`${SCENE_EMOJI[scene]} ${t('seasonTry', { scene: this.sceneLabel(scene) })}`, ...(sceneNeedsPro(scene) && s.license.tier !== 'pro' ? [h('span', { class: 'lock', text: 'PRO' })] : []));
     });
     card.append(h('p', { text: `${emoji} ${text}` }), h('div', {}, [btn]));

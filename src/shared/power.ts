@@ -72,10 +72,15 @@ export function coversDisplay(window: Rect, display: Rect, tolerance = 2): boole
  * module: it spans the whole screen when you click on it, but it is not a
  * fullscreen app and must never trigger game mode.
  */
-export function isDesktopShell(app: string, title: string, platform: string): boolean {
+export function isDesktopShell(app: string, title: string, platform: string, path = ''): boolean {
   const a = app.trim().toLowerCase();
   const t = title.trim();
-  if (platform === 'win32') return /^(windows )?explorer(\.exe)?$/.test(a) && (t === '' || t === 'Program Manager');
+  if (platform === 'win32') {
+    // The app name is explorer's localised description ("Explorateur Windows"…): trust the executable.
+    const exe = path.split(/[\\/]/).pop()?.toLowerCase() ?? '';
+    const explorer = exe === 'explorer.exe' || /^(windows )?explorer(\.exe)?$/.test(a);
+    return t === 'Program Manager' || (explorer && t === '');
+  }
   if (platform === 'darwin') return a === 'finder' && t === '';
   return /^(xfdesktop|nautilus-desktop|desktop_window|pcmanfm|pcmanfm-qt|caja|nemo-desktop|ding|plasmashell)$/.test(a) || t === 'Desktop';
 }

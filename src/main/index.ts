@@ -231,7 +231,7 @@ async function main(): Promise<void> {
     const s = store.get();
     const next = new Set<number>();
     const w = lastActiveWindow;
-    if (s.gameMode && w && !isSelfWindow(w) && !isDesktopShell(w.app, w.title, process.platform)) {
+    if (s.gameMode && w && !isSelfWindow(w) && !isDesktopShell(w.app, w.title, process.platform, w.path)) {
       for (const d of overlays.displayBounds()) if (coversDisplay(w.bounds, d.bounds)) next.add(d.id);
     }
     const changed = next.size !== gameDisplays.size || [...next].some((id) => !gameDisplays.has(id));
@@ -339,6 +339,8 @@ async function main(): Promise<void> {
    * comes back to it.
    */
   let audioFailed: 'system' | 'mic' | null = null;
+  /** Why it failed, shown again after a pause (stopping the host resets the status to 'off'). */
+  let audioFailure: AudioStatusReport | null = null;
   /** The stored choice last seen: only a change of it (not pausing or locking) clears a failure. */
   let audioChoice = store.get().audioSource;
   let lastLevelPush = 0;
@@ -347,9 +349,16 @@ async function main(): Promise<void> {
     if (s.audioSource !== audioChoice) {
       audioChoice = s.audioSource;
       audioFailed = null;
+      audioFailure = null;
     }
     const want = s.audioSource !== 'off' && s.enabled && !governor.current.paused && !cli.smoke ? s.audioSource : null;
-    if (want && want === audioFailed) return;
+    if (want && want === audioFailed) {
+      if (audioFailure && audioStatus.status === 'off') {
+        audioStatus = audioFailure;
+        settingsWindow.pushState();
+      }
+      return;
+    }
     if (want && want !== audioRunning) {
       audioRunning = want;
       mediaHost.start({ source: want, sensitivity: s.audioSensitivity });
@@ -375,6 +384,7 @@ async function main(): Promise<void> {
     audioStatus = report;
     if ((report.status === 'denied' || report.status === 'unsupported' || report.status === 'error') && audioRunning) {
       audioFailed = audioRunning;
+      audioFailure = report;
       audioRunning = null;
     }
     log.info(`audio: ${report.status}${report.source ? ` (${report.source})` : ''}${report.detail ? ` — ${report.detail}` : ''}`);
@@ -471,7 +481,8 @@ async function main(): Promise<void> {
   });
 
   const tray = new TrayController({
-    getSettings: effective,
+    // The user's choices (Pro-reduced), not the eco profile: otherwise "60 fps" reads as 30 on battery.
+    getSettings: () => effectiveSettings(store.get(), license.pro),
     updateSettings,
     getCapabilities: () => capabilities,
     getLicense: () => license.status(),

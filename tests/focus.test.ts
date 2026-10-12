@@ -22,6 +22,8 @@ describe('focus helpers', () => {
     expect(clampFocusMinutes(9999)).toBe(FOCUS_MAX_MINUTES);
     expect(clampFocusMinutes('x', 10)).toBe(10);
     expect(clampFocusMinutes(NaN)).toBe(25);
+    expect(clampFocusMinutes('', 40)).toBe(40);
+    expect(clampFocusMinutes('  ', 40)).toBe(40);
   });
 
   it('formats the clock, rounding up', () => {

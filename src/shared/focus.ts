@@ -40,7 +40,8 @@ export const IDLE_FOCUS: FocusFrame = { phase: 'idle', id: 0, durationMs: 0, rem
 export const FOCUS_DONE_TEXT_MAX = 12;
 
 export function clampFocusMinutes(value: unknown, fallback = FOCUS_DEFAULT_MINUTES): number {
-  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  // Number('') is 0: a cleared field must fall back, not become a 1-minute session.
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
   if (!Number.isFinite(n)) return fallback;
   return Math.min(FOCUS_MAX_MINUTES, Math.max(FOCUS_MIN_MINUTES, Math.round(n)));
 }

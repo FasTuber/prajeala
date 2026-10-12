@@ -26,6 +26,8 @@ export interface ActiveWindowInfo {
   title: string;
   app: string;
   pid: number;
+  /** Executable path when the OS discloses it ('' otherwise). */
+  path: string;
   /** Global DIP bounds. */
   bounds: Rect;
 }
@@ -199,6 +201,7 @@ function toInfo(r: GetWindowsResult): ActiveWindowInfo {
     title: typeof r.title === 'string' ? r.title : '',
     app: r.owner && typeof r.owner.name === 'string' ? r.owner.name : '',
     pid: r.owner && typeof r.owner.processId === 'number' ? r.owner.processId : -1,
+    path: r.owner && typeof r.owner.path === 'string' ? r.owner.path : '',
     bounds: toDipRect(r.bounds),
   };
 }
