@@ -102,7 +102,8 @@ export interface ZmeuLightOut {
   radius: number;
 }
 
-const NEVER = -1e9;
+/** "Long ago" for brain-clock timestamps. */
+export const NEVER = -1e9;
 
 export class ZmeuWorld {
   rng: Random;
@@ -325,7 +326,13 @@ export class ZmeuWorld {
   hadWin = false;
   prevWinKey = 0;
   typingHop = false;
-  rideJump = 0;
+  /**
+   * The window perch is no longer valid (sticky until the dragon leaves or takes a
+   * perch): 1 = its window changed app, moved too far, resized or went away; 2 = it
+   * jumped more than 0.3·S (startle first). States that cannot react at once (hop,
+   * waking, pet, roar) handle it when they end, and the dragon never rides a lost perch.
+   */
+  perchLost = 0;
   inspectWin = false;
 
   // Pointer.
@@ -384,6 +391,7 @@ export class ZmeuWorld {
   nextBurstAt = 0;
   cheerNext = 0;
   cheerLeft = 0;
+  lastIgniteAt = NEVER;
   cheerTX = 0;
   cheerTY = 0;
   snortTX = 0;

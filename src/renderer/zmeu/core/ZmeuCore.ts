@@ -19,7 +19,7 @@ import type { ZmeuSenses } from './senses';
 import type { ZmeuState } from './tuning';
 import { ZMEU_EVENT, ZMEU_JOINTS, ZMEU_TUNING as T, ZmeuEmote, isZmeuState } from './tuning';
 import type { ZmeuBreathOut, ZmeuEmoteOut, ZmeuLightOut, ZmeuPoseOut } from './world';
-import { ZmeuWorld } from './world';
+import { NEVER, ZmeuWorld } from './world';
 import { hyp } from './vec';
 
 export type ZmeuPointerType = 'down' | 'up';
@@ -205,6 +205,12 @@ export class ZmeuCore implements ZmeuView {
     w.homeEdge = f.edge !== null && ZMEU_EDGES.includes(f.edge) ? f.edge : null;
     w.homeAt = num(f.at, 0);
     if (home && !w.home) w.homeSince = w.bclock;
+    if (!home) {
+      // Main moved the dragon on (or hid it): a sulk here is over, so the next arrival
+      // uses the new frame's via and edge instead of waiting out the 45 s.
+      w.absentUntil = NEVER;
+      w.reenterEdge = null;
+    }
     w.home = home;
     if (!home && w.homeVia !== null) {
       // A handoff frame. Already gone (sulking, or not arrived yet): report at once
@@ -247,7 +253,10 @@ export class ZmeuCore implements ZmeuView {
   step(dt: number, s: Readonly<ZmeuSenses>, wallMs: number): void {
     const w = this.w;
     const d = Number.isFinite(dt) && dt > 0 ? Math.min(dt, T.maxDt) : 0;
-    if (Number.isFinite(wallMs)) w.wallMs = wallMs;
+    if (Number.isFinite(wallMs)) {
+      w.wallMs = wallMs;
+      if (w.state === 'asleep' && !Number.isFinite(w.asleepWall)) w.asleepWall = wallMs;
+    }
     this.sense(s);
     if (d > 0) {
       perceiveFrame(w, w.sn, d);
@@ -362,6 +371,9 @@ export class ZmeuCore implements ZmeuView {
     if (st === 'absent' || st === 'leaving' || st === 'entering' || st === 'sulk' || st === 'asleep') return;
     w.sleptBase = hiddenS;
     go(w, w.sn, 'asleep');
+    // wallMs is from before the hide: anchor the wall clock at the next step, or the
+    // hidden time would count twice (once in sleptBase, once as wall time).
+    w.asleepWall = NaN;
     this.finalize(0);
   }
 

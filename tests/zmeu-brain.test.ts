@@ -6,10 +6,11 @@ import { ZMEU_TEMPER, zmeuLength } from '../src/shared/zmeu';
 import { Random } from '../src/renderer/util/math';
 import { overContent } from '../src/renderer/zmeu/core/brain';
 import { hitsBody } from '../src/renderer/zmeu/core/gestures';
-import { pickWindowPerch } from '../src/renderer/zmeu/core/perches';
+import { createPerch, pickWindowPerch } from '../src/renderer/zmeu/core/perches';
 import { createZmeuSenses } from '../src/renderer/zmeu/core/senses';
 import { ZMEU_EVENT, ZMEU_JOINTS, ZMEU_TUNING, isZmeuState } from '../src/renderer/zmeu/core/tuning';
 import type { ZmeuCore } from '../src/renderer/zmeu/core/ZmeuCore';
+import { ZmeuCore as ZmeuCoreImpl } from '../src/renderer/zmeu/core/ZmeuCore';
 import type { HarnessInput, SimResult } from './helpers/zmeuHarness';
 import { HOME_HELLO, HOME_PUFF, firstEntry, simulate } from './helpers/zmeuHarness';
 
@@ -102,7 +103,8 @@ describe('zmeu brain: arrival and perching', () => {
     for (const zone of ['right150', 'left90'] as const) {
       const s = createZmeuSenses(W, H);
       s.buttonsZone = zone;
-      const out = { x: 0, y: 0, facing: 1, drape: 0, window: false, fx: 0, x0: 0, x1: 0 };
+      s.winKey = 42;
+      const out = createPerch();
       for (let k = 0; k < 200; k++) {
         const win = { x: rng.range(-200, 1200), y: rng.range(90, 800), width: rng.range(300, 1600), height: 400 };
         s.win = win;
@@ -120,6 +122,7 @@ describe('zmeu brain: arrival and perching', () => {
         else expect(p.x).toBeLessThanOrEqual(win.x + win.width - 150);
         expect(p.y).toBe(win.y);
         expect(p.drape).toBe(1);
+        expect(p.key).toBe(42);
       }
       s.win = { x: 300, y: 300, width: 1000, height: 500 };
       expect(pickWindowPerch(s, rng, out)).not.toBeNull();
@@ -182,6 +185,39 @@ describe('zmeu brain: arrival and perching', () => {
     expect(firstEntry(r, 'startled', 4)).toBeGreaterThan(0);
     expect(r.timeline.filter((e) => e.t < 4 && e.events & ZMEU_EVENT.TAKEOFF)).toHaveLength(0);
   });
+
+  it('an app switch mid-roar or mid-wake never drags it along to the new window', () => {
+    const a: Rect = { x: 300, y: 400, width: 1100, height: 500 };
+    const b: Rect = { x: 1300, y: 200, width: 560, height: 500 };
+    for (const state of ['roar', 'waking'] as const) {
+      let anchor: { x: number; y: number } | null = null;
+      let drift = 0;
+      const r = simulate({
+        seconds: 5,
+        seed: 6,
+        setup: (core, s) => {
+          s.win = { ...a };
+          s.winKey = 8;
+          core.forceState(state, s);
+        },
+        script: (t, core) => {
+          if (t >= 0.5 && !anchor) {
+            anchor = { x: core.anchorX, y: core.anchorY };
+            return { win: { ...b }, winKey: 9 };
+          }
+          return undefined;
+        },
+        onFrame: (_t, core) => {
+          if (anchor && core.perchOnWindow) drift = Math.max(drift, Math.hypot(core.anchorX - anchor.x, core.anchorY - anchor.y));
+        },
+      });
+      expect(drift).toBeLessThanOrEqual(1);
+      // It leaves the lost ledge once the roar / wake-up is over (never perching on b without a landing flight).
+      const tk = r.timeline.find((e) => e.t >= 0.5 && e.events & ZMEU_EVENT.TAKEOFF);
+      expect(tk).toBeDefined();
+      expect(tk!.t).toBeLessThan(state === 'waking' ? 2.6 : 1);
+    }
+  });
 });
 
 describe('zmeu brain: curiosity, chases and pokes', () => {
@@ -225,6 +261,30 @@ describe('zmeu brain: curiosity, chases and pokes', () => {
     });
     expect(hovering).toBeGreaterThan(60);
     expect(minD).toBeGreaterThanOrEqual(DP - 2);
+  });
+
+  it('answers a call at once, even while already curious on its perch', () => {
+    let cur: { x: number; y: number } | null = null;
+    let calledAt = -1;
+    let leftAt = -1;
+    simulate({
+      seconds: 8,
+      seed: 7,
+      script: (t, core) => {
+        if (t >= 2 && !cur) cur = { x: core.pose.headX + (core.pose.headX > W / 2 ? -1 : 1) * 0.6 * L, y: core.pose.headY - 0.5 * L };
+        if (calledAt < 0 && core.state === 'curious' && core.onPerch && core.stateAge > 0.3) {
+          calledAt = t;
+          core.call(cur!.x, cur!.y);
+        }
+        return cur ? { cursor: cur } : undefined;
+      },
+      onFrame: (t, core) => {
+        if (calledAt > 0 && leftAt < 0 && core.state === 'curious' && !core.onPerch) leftAt = t;
+      },
+    });
+    expect(calledAt).toBeGreaterThan(0);
+    expect(leftAt).toBeGreaterThanOrEqual(calledAt);
+    expect(leftAt - calledAt).toBeLessThan(0.1);
   });
 
   it('a rush at 900 px/s startles within 2 frames of contact, then flees far from the cursor', () => {
@@ -490,6 +550,21 @@ describe('zmeu brain: fire', () => {
     expect(wd).toBeGreaterThanOrEqual(20);
     expect(wd).toBeLessThan(20.1);
   });
+
+  it('keeps the IGNITE spacing when a call interrupts the cheer', () => {
+    const r = simulate({
+      seconds: 20,
+      seed: 71,
+      script: (t, core) => {
+        for (const tc of [4.6, 9.0, 12.7]) if (t >= tc && t < tc + 1 / 60) core.call(900, 500);
+        return t >= 2 ? { burnTarget: { x: 900, y: 700 } } : undefined;
+      },
+    });
+    // Each call bounces cheer → curious → cheer within one frame; re-entering used to restart the 1 s lead-in.
+    const ignites = r.timeline.filter((e) => e.events & ZMEU_EVENT.IGNITE);
+    expect(ignites.length).toBeGreaterThanOrEqual(4);
+    for (let i = 1; i < ignites.length; i++) expect(ignites[i]!.t - ignites[i - 1]!.t).toBeGreaterThanOrEqual(3.5 - 1e-6);
+  });
 });
 
 describe('zmeu brain: sleep', () => {
@@ -603,6 +678,22 @@ describe('zmeu brain: sleep', () => {
     expect(woke).toBe(true);
     expect(firstEntry(r, 'waking')).toBeGreaterThanOrEqual(2.9);
   });
+
+  it('resumeAfter counts the hidden time once, though the wall clock ran on', () => {
+    const core = new ZmeuCoreImpl(95);
+    const s = createZmeuSenses(W, H);
+    core.setHome(HOME_PUFF);
+    let wall = 5000;
+    for (let i = 0; i < 120; i++) core.step(1 / 60, s, (wall += 1000 / 60));
+    expect(core.state).toBe('perched');
+    wall += 600_000; // App was hidden for 600 s; performance.now() kept going
+    core.resumeAfter(600);
+    for (let i = 0; i < 30; i++) core.step(1 / 60, s, (wall += 1000 / 60));
+    expect(core.state).toBe('asleep');
+    expect(core.sleptFor).toBeGreaterThanOrEqual(600);
+    expect(core.sleptFor).toBeLessThan(601);
+    expect(core.petFps).toBe(0);
+  });
 });
 
 describe('zmeu brain: home', () => {
@@ -630,6 +721,40 @@ describe('zmeu brain: home', () => {
     expect(firstSeen!.x).toBeLessThan(0);
     expect(Math.abs(firstSeen!.y - 600)).toBeLessThanOrEqual(0.1 * S);
     expect(firstEntry(r, 'wander', 8)).toBeGreaterThan(8);
+  });
+
+  it('a handoff after a sulk cancels the sulk: back home, it enters at once from the given edge', () => {
+    let absentAt = -1;
+    let firstSeen: { x: number; y: number } | null = null;
+    const r = simulate({
+      seconds: 30,
+      seed: 41,
+      script: (t, core) => {
+        if (absentAt < 0) {
+          if (core.state === 'absent' && t > 5) absentAt = t;
+          for (const tp of [2, 3.5, 5]) if (t >= tp && t < tp + 1 / 60) return { clicks: [{ type: 'click', x: core.bodyX[3]!, y: core.bodyY[3]! }] };
+          return undefined;
+        }
+        if (t >= absentAt + 2 && t < absentAt + 2 + 1 / 60) return { home: { seq: 2, home: false, via: 'edge', edge: 'right', at: 500 } };
+        if (t >= absentAt + 8 && t < absentAt + 8 + 1 / 60) return { home: { seq: 3, home: true, via: 'edge', edge: 'right', at: 300 } };
+        return undefined;
+      },
+      onFrame: (t, core) => {
+        if (absentAt > 0 && t > absentAt + 8 && !firstSeen && core.visible) firstSeen = head(core);
+      },
+    });
+    expect(firstEntry(r, 'sulk')).toBeGreaterThan(4.9);
+    expect(absentAt).toBeGreaterThan(5);
+    // Already gone: the exit is reported at once, answering seq 2.
+    const ex = r.timeline.find((e) => e.events & ZMEU_EVENT.EXITED);
+    expect(ex?.exitSeq).toBe(2);
+    expect(ex!.t).toBeLessThan(absentAt + 2.1);
+    const back = firstEntry(r, 'entering', absentAt + 8);
+    expect(back).toBeGreaterThan(absentAt + 8);
+    expect(back).toBeLessThan(absentAt + 8.5);
+    expect(firstSeen).not.toBeNull();
+    expect(firstSeen!.x).toBeGreaterThan(W);
+    expect(Math.abs(firstSeen!.y - 300)).toBeLessThanOrEqual(0.1 * S);
   });
 
   it('arrives from the sky as a fireball, then unfurls', () => {
@@ -768,6 +893,33 @@ describe('zmeu brain: determinism and robustness', () => {
     expect(maxSpeed).toBeLessThanOrEqual(ZMEU_TUNING.cruise * S * 1.001);
     expect(r.core.loops).toBe(0);
     expect(r.eventCount(ZMEU_EVENT.SNORT)).toBe(0);
+  });
+
+  it('reduced motion: a large dragon startled off its perch stays within cruise', () => {
+    let maxSpeed = 0;
+    let startled = false;
+    let cur: { x: number; y: number } | null = null;
+    simulate({
+      seconds: 3,
+      seed: 3,
+      size: 'large',
+      setup: (core, s) => {
+        s.reducedMotion = true;
+        core.forceState('perched', s);
+      },
+      script: (t, core) => {
+        // Cursor below and behind the head: the escape jolt lines up with the takeoff kick.
+        cur ??= { x: core.pose.headX - core.pose.facing * 60, y: core.pose.headY + 80 };
+        if (t >= 1 && t < 1 + 1 / 60) return { cursor: cur, clicks: [{ type: 'click', x: core.bodyX[3]!, y: core.bodyY[3]! }] };
+        return { cursor: cur };
+      },
+      onFrame: (_t, core) => {
+        if (core.state === 'startled') startled = true;
+        maxSpeed = Math.max(maxSpeed, core.pose.speed);
+      },
+    });
+    expect(startled).toBe(true);
+    expect(maxSpeed).toBeLessThanOrEqual(ZMEU_TUNING.cruise * S * 1.001);
   });
 
   it('keeps its etiquette budget over seeded 10-minute sessions', () => {

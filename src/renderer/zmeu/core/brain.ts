@@ -18,13 +18,11 @@ import type { ZmeuSenses } from './senses';
 import type { ZmeuEmote, ZmeuState } from './tuning';
 import { ZMEU_EVENT as EV, ZMEU_TUNING as T, ZMEU_WING, ZmeuEmote as EM } from './tuning';
 import type { ZmeuWorld } from './world';
-import { NAV_FLY, NAV_POSED, NAV_SCRIPT, NAV_STILL, POSE_COIL, POSE_HOVER, POSE_NONE, POSE_PERCH, POSE_ROAR_HOVER, POSE_ROAR_PERCH } from './world';
+import { NAV_FLY, NAV_POSED, NAV_SCRIPT, NAV_STILL, NEVER, POSE_COIL, POSE_HOVER, POSE_NONE, POSE_PERCH, POSE_ROAR_HOVER, POSE_ROAR_PERCH } from './world';
 import { hyp } from './vec';
 
 type EnterFn = (w: ZmeuWorld, s: ZmeuSenses) => void;
 type UpdateFn = (w: ZmeuWorld, s: ZmeuSenses, bh: number, h: number) => void;
-
-const NEVER = -1e9;
 
 // ---------------------------------------------------------------- helpers
 
@@ -198,6 +196,7 @@ function spawnStraight(w: ZmeuWorld, x: number, y: number, dx: number, dy: numbe
 export function snapPerch(w: ZmeuWorld, p: ZmeuPerch, coil: boolean): void {
   copyPerch(w.perch, p);
   w.onPerch = true;
+  w.perchLost = 0;
   w.poseKind = coil ? POSE_COIL : POSE_PERCH;
   w.coilMix = 0;
   w.peek = 0;
@@ -319,10 +318,10 @@ export function decide(w: ZmeuWorld, s: Readonly<ZmeuSenses>): ZmeuState | null 
     if (st === 'asleep') return 'waking';
     if (st !== 'startled' && st !== 'waking') return 'startled';
   }
-  // Riding a window that jumped, changed or vanished.
-  if (w.rideJump > 0 && w.onPerch && w.perch.window && st !== 'hop' && st !== 'waking') {
+  // Riding a window that jumped, changed or vanished (hop and waking finish first).
+  if (w.perchLost > 0 && w.onPerch && w.perch.window && st !== 'hop' && st !== 'waking') {
     if (st === 'asleep') return 'waking';
-    if (w.rideJump === 2) return 'startled';
+    if (w.perchLost === 2) return 'startled';
     if (!w.winNew || quiet || st === 'drowsy') return 'wander';
   }
   // 4. Power sleep and naps.
@@ -342,8 +341,9 @@ export function decide(w: ZmeuWorld, s: Readonly<ZmeuSenses>): ZmeuState | null 
   // 8. Cheer the burn.
   if (s.burnTarget && (st === 'wander' || st === 'perched' || st === 'curious' || st === 'landing')) return 'cheer';
   if (st === 'cheer' && !s.burnTarget) return 'wander';
-  // Called by the user (tray / settings): come and look.
-  if (w.callPending && awake(st) && st !== 'curious') return 'curious';
+  // Called by the user (tray / settings): come and look. Also from curious (a perched one
+  // would otherwise only crane its neck until it times out); entering clears callPending.
+  if (w.callPending && awake(st)) return 'curious';
   // 9. Curiosity.
   if ((st === 'wander' || st === 'perched') && w.stillNear >= T.curiousAt && !quiet && w.bclock >= w.curiousCooldownUntil && w.bclock >= w.curiousOffUntil) {
     return 'curious';
@@ -351,8 +351,8 @@ export function decide(w: ZmeuWorld, s: Readonly<ZmeuSenses>): ZmeuState | null 
   // 10. A new active window.
   if (w.winNew && !quiet && (st === 'wander' || st === 'perched' || st === 'curious' || st === 'landing')) {
     if (canBreathe(w, s)) return 'breathe';
-    if (windowSpan(s, scratchSpan) && !(w.onPerch && w.perch.window && st !== 'landing' && w.rideJump === 0)) return 'landing';
-    if (w.rideJump > 0) return 'wander';
+    if (windowSpan(s, scratchSpan) && !(w.onPerch && w.perch.window && st !== 'landing' && w.perchLost === 0)) return 'landing';
+    if (w.perchLost > 0) return 'wander';
   }
   return null;
 }
@@ -429,9 +429,11 @@ export function perceiveFrame(w: ZmeuWorld, s: ZmeuSenses, dt: number): void {
     w.winNew = true;
     w.winRoll = w.rng.next();
   }
-  if (w.onPerch && w.perch.window && w.state !== 'absent') {
+  if (!w.onPerch || !w.perch.window || w.state === 'absent') w.perchLost = 0;
+  else {
+    // The perch belongs to the window it was taken on (its app key); a lost perch stays lost.
     let leave = 0;
-    if (!win || s.winMaximized || (w.hadWin && w.prevWinKey !== s.winKey)) leave = 1;
+    if (!win || s.winMaximized || s.winKey !== w.perch.key) leave = 1;
     else if (w.hadWin) {
       const fx = w.perch.fx;
       const jump = hyp(win.x + fx * win.width - (w.prevWin.x + fx * w.prevWin.width), win.y - w.prevWin.y);
@@ -439,7 +441,7 @@ export function perceiveFrame(w: ZmeuWorld, s: ZmeuSenses, dt: number): void {
       else if (jump > 0.12 * S || Math.abs(win.width - w.prevWin.width) > 0.2 * w.prevWin.width) leave = 1;
     }
     if (!windowSpan(s, scratchSpan)) leave = Math.max(leave, 1);
-    w.rideJump = leave;
+    if (leave > w.perchLost) w.perchLost = leave;
   }
   if (win) {
     w.prevWin.x = win.x;
@@ -487,7 +489,7 @@ function ride(w: ZmeuWorld, s: ZmeuSenses, h: number): void {
   let ty: number;
   if (p.window) {
     const win = s.win;
-    if (!win || w.rideJump > 0) return;
+    if (!win || w.perchLost > 0) return;
     tx = win.x + p.fx * win.width;
     ty = win.y;
   } else ty = s.floor;
@@ -539,7 +541,6 @@ export function think(w: ZmeuWorld, s: ZmeuSenses, h: number, first: boolean): v
   if (first) {
     w.pokeNow = false;
     w.winNew = false;
-    w.rideJump = 0;
     w.typingHop = false;
     w.inputPulse = false;
     w.wakePulse = false;
@@ -1018,7 +1019,8 @@ function updateLanding(w: ZmeuWorld, s: ZmeuSenses): void {
   const p = w.landPerch;
   if (p.window) {
     const win = s.win;
-    if (!win || s.winMaximized) {
+    // Another app (no reaction in quiet mode) or a ledge that is no longer usable: give up.
+    if (!win || s.winKey !== p.key || !windowSpan(s, scratchSpan)) {
       go(w, s, 'wander');
       return;
     }
@@ -1037,6 +1039,7 @@ function updateLanding(w: ZmeuWorld, s: ZmeuSenses): void {
     if (hyp(hx - w.x, hy - w.y) < 0.3 * w.Lc) {
       copyPerch(w.perch, p);
       w.onPerch = true;
+      w.perchLost = 0;
       w.poseKind = POSE_PERCH;
       w.poseW = 0;
       w.poseWTarget = 1;
@@ -1260,6 +1263,8 @@ function updatePet(w: ZmeuWorld, s: ZmeuSenses): void {
     w.wingPreset = ZMEU_WING.perched;
   } else {
     navTo(w, s, w.x, w.y, T.hover);
+    // Hold still under the hand: no cursor avoidance while petted (spec 4.5).
+    w.nav.avoid = false;
     w.wingPreset = ZMEU_WING.hover;
   }
   if (w.bclock - w.petSeenAt > 0.8 || w.stateAge > 8) {
@@ -1288,8 +1293,17 @@ function enterStartled(w: ZmeuWorld, s: ZmeuSenses): void {
     }
   }
   const v = (0.15 * w.Lc) / T.startleS;
-  w.vx = ax * v + w.vx * 0.3;
-  w.vy = ay * v + w.vy * 0.3;
+  let vx = ax * v + w.vx * 0.3;
+  let vy = ay * v + w.vy * 0.3;
+  // A large dragon's jolt plus the takeoff kick can pass cruise: reduced motion caps it there.
+  const vm = speedPx(w, s, 1);
+  const l = hyp(vx, vy);
+  if (l > vm) {
+    vx *= vm / l;
+    vy *= vm / l;
+  }
+  w.vx = vx;
+  w.vy = vy;
   w.wingPreset = ZMEU_WING.startled;
   w.wingRate = 30;
   const t = temperOf(s);
@@ -1727,6 +1741,7 @@ function updateDrowsy(w: ZmeuWorld, s: ZmeuSenses, bh: number): void {
       if (hyp(hx - w.x, hy - w.y) < 0.3 * w.Lc || w.phaseAge > 5) {
         copyPerch(w.perch, p);
         w.onPerch = true;
+        w.perchLost = 0;
         w.poseKind = POSE_PERCH;
         w.poseWTarget = 1;
         w.poseWRate = 1 / T.landSettleS;
@@ -1890,7 +1905,8 @@ function updateWaking(w: ZmeuWorld, s: ZmeuSenses): void {
 
 function enterCheer(w: ZmeuWorld, s: ZmeuSenses): void {
   takeoff(w, s);
-  w.cheerNext = w.bclock + 1;
+  // Re-entering (after a call or a startle mid-burn) keeps the 3.5 s IGNITE spacing.
+  w.cheerNext = Math.max(w.bclock + 1, w.lastIgniteAt + 3.5);
   w.cheerLeft = 0;
 }
 
@@ -1914,6 +1930,7 @@ function updateCheer(w: ZmeuWorld, s: ZmeuSenses, bh: number): void {
   w.happyT = 0.6;
   if (w.bclock >= w.cheerNext) {
     ev(w, EV.IGNITE);
+    w.lastIgniteAt = w.bclock;
     w.igniteX = bt.x;
     w.igniteY = bt.y;
     w.cheerTX = bt.x;

@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { IPC } from '../src/shared/ipc';
+import type { Overlay } from '../src/main/overlay-manager';
+import { ZMEU_ARRIVAL_REPLAY_MS, ZmeuDirector, type ZmeuOverlays } from '../src/main/zmeu-director';
 import { ZMEU_SIZES, ZMEU_TEMPERS } from '../src/shared/settings';
 import {
   ZMEU_EXIT_TIMEOUT_MS,
@@ -17,9 +20,15 @@ import {
   stepZmeuHome,
   zmeuLength,
   type ZmeuDisplay,
+  type ZmeuHomeFrame,
   type ZmeuHomeInput,
   type ZmeuHomeState,
 } from '../src/shared/zmeu';
+
+vi.mock('../src/main/log', () => {
+  const quiet = (): undefined => undefined;
+  return { createLogger: () => ({ debug: quiet, info: quiet, warn: quiet, error: quiet, at: quiet }) };
+});
 
 const A: ZmeuDisplay = { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
 const B: ZmeuDisplay = { id: 2, bounds: { x: 1920, y: 0, width: 1920, height: 1080 } };
@@ -430,5 +439,88 @@ describe('sanitizers', () => {
     for (const bad of [null, 'x', {}, { seq: 2.5 }, { seq: '2' }, { seq: Number.NaN }, { seq: -3 }]) {
       expect(sanitizeZmeuExit(bad)).toBeNull();
     }
+  });
+});
+
+// The main-side wrapper (src/main/zmeu-director.ts) on top of the pure logic above:
+// what a reloaded page hears, and the allocation-free cursor path.
+describe('ZmeuDirector frames and cursor path', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function setup() {
+    const list = [A, B].map((d) => ({ id: d.id, info: { id: d.id, bounds: d.bounds } }) as unknown as Overlay);
+    const sent: Array<{ to: number; channel: string; payload: unknown }> = [];
+    let listCalls = 0;
+    const overlays: ZmeuOverlays = {
+      list: () => {
+        listCalls++;
+        return list;
+      },
+      sendTo: <T>(overlay: Overlay, channel: string, payload: T) => {
+        sent.push({ to: overlay.id, channel, payload });
+      },
+    };
+    const env = { cursor: onA as { x: number; y: number } | null };
+    const director = new ZmeuDirector({
+      overlays,
+      active: () => true,
+      suppressed: () => none,
+      readCursor: () => env.cursor,
+      primaryId: () => 1,
+      now: () => Date.now(),
+    });
+    const overlay = (id: number): Overlay => list.find((o) => o.id === id)!;
+    const homes = (): ZmeuHomeFrame[] => sent.filter((s) => s.channel === IPC.zmeuHome).map((s) => s.payload as ZmeuHomeFrame);
+    return { director, env, overlay, homes, listCalls: () => listCalls };
+  }
+
+  it('replays the hello to a page loading right after it, and puffs in a page reloaded later', () => {
+    const { director, overlay } = setup();
+    director.sync('start');
+    // startup: the page is still loading when hello is decided
+    vi.advanceTimersByTime(ZMEU_ARRIVAL_REPLAY_MS - 1);
+    expect(director.frameFor(overlay(1))).toEqual({ seq: 1, home: true, via: 'hello', edge: null, at: 0 });
+    // crash reload / overlay rebuild an hour later: no second hello (and roar)
+    vi.advanceTimersByTime(3_600_000);
+    expect(director.frameFor(overlay(1))).toEqual({ seq: 1, home: true, via: 'puff', edge: null, at: 0 });
+    expect(director.frameFor(overlay(2))).toEqual({ seq: 1, home: false, via: null, edge: null, at: 0 });
+  });
+
+  it('a reloaded old home still hears its exit, and the new home only replays the edge entry while fresh', () => {
+    const { director, env, overlay } = setup();
+    director.sync('start');
+    vi.advanceTimersByTime(30_000);
+    env.cursor = onB;
+    director.noteCursor(onB);
+    vi.advanceTimersByTime(ZMEU_MIGRATE_DWELL_MS + 5);
+    vi.advanceTimersByTime(ZMEU_EXIT_TIMEOUT_MS - 100);
+    // still pending: a fresh page of the old home answers the exit at once (no puff there)
+    expect(director.frameFor(overlay(1))).toEqual({ seq: 2, home: false, via: 'edge', edge: 'right', at: 300 });
+    director.onExited(overlay(1), { seq: 2 });
+    expect(director.frameFor(overlay(2))).toEqual({ seq: 2, home: true, via: 'edge', edge: 'left', at: 300 });
+    vi.advanceTimersByTime(ZMEU_ARRIVAL_REPLAY_MS);
+    expect(director.frameFor(overlay(2))).toEqual({ seq: 2, home: true, via: 'puff', edge: null, at: 0 });
+  });
+
+  it('cursor moves within one display touch neither the overlay list nor IPC, and crossings still migrate', () => {
+    const { director, env, homes, listCalls } = setup();
+    director.sync('start');
+    vi.advanceTimersByTime(30_000);
+    const calls = listCalls();
+    const frames = homes().length;
+    for (let i = 0; i < 500; i++) director.noteCursor({ x: 100 + i, y: 300 + (i % 50) });
+    expect(listCalls()).toBe(calls);
+    expect(homes()).toHaveLength(frames);
+    env.cursor = onB;
+    director.noteCursor(onB);
+    for (let i = 0; i < 500; i++) director.noteCursor({ x: 2000 + i, y: 300 });
+    vi.advanceTimersByTime(ZMEU_MIGRATE_DWELL_MS + 5);
+    expect(homes().at(-1)).toEqual({ seq: 2, home: false, via: 'edge', edge: 'right', at: 300 });
   });
 });

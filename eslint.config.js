@@ -191,6 +191,11 @@ export default defineConfig([
               group: ['**/gl', '**/gl/**', '**/render', '**/render/**', '*.glsl', '*.vert', '*.frag', '**/*.glsl', '**/*.vert', '**/*.frag'],
               message: 'zmeu/core may only import util/math, util/noise and src/shared.',
             },
+            {
+              // Allow-list: siblings, util/math, util/noise and src/shared; nothing else (no packages, no app code).
+              regex: '^(?!\\./[^/]+$|\\.\\./\\.\\./util/(?:math|noise)$|\\.\\./\\.\\./\\.\\./shared/[^/]+$)',
+              message: 'zmeu/core may only import util/math, util/noise and src/shared.',
+            },
           ],
         },
       ],

@@ -10,10 +10,11 @@ import { hyp } from './vec';
 export const CURSOR_RING_SIZE = 24;
 /**
  * Minimum spacing between slots (s). Cursor events arrive at ~120 Hz, so 24
- * raw samples would cover only 0.2 s; decimating to 30 Hz makes the ring span
- * the 0.6–1.2 s windows the gestures need. Closer samples update the latest slot.
+ * raw samples would cover only 0.2 s; decimating to 20 Hz makes the ring span
+ * the 1.2 s reversal window petting needs (24 × 0.05 s). Closer samples update
+ * the latest slot.
  */
-export const CURSOR_RING_DT = 1 / 30;
+export const CURSOR_RING_DT = 1 / 20;
 
 export class CursorRing {
   readonly x = new Float64Array(CURSOR_RING_SIZE);

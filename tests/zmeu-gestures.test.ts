@@ -36,6 +36,24 @@ describe('gestures', () => {
     expect(found).toBeLessThanOrEqual(0.6);
   });
 
+  it('detects a slow, gentle wiggle (3 reversals within 1.2 s) from 120 Hz samples', () => {
+    for (const hz of [1.3, 2]) {
+      const ring = new CursorRing();
+      let found = -1;
+      for (let k = 0; k <= 360; k++) {
+        const t = k / 120;
+        ring.push(mid.x + 0.08 * L * Math.sin(2 * Math.PI * hz * t), mid.y, t);
+        if (found < 0 && isPetting(ring, t, b)) found = t;
+      }
+      expect(found).toBeGreaterThan(0);
+      expect(found).toBeLessThanOrEqual(1.2);
+    }
+    // The ring keeps 1.2 s of history at that rate.
+    const ring = new CursorRing();
+    for (let k = 0; k <= 240; k++) ring.push(k, 0, k / 120);
+    expect(ring.latestT() - ring.t[ring.slot(ring.count - 1)]!).toBeGreaterThanOrEqual(1.1);
+  });
+
   it('does not pet on a straight pass or a resting pointer', () => {
     const ring = new CursorRing();
     for (let k = 0; k <= 120; k++) {

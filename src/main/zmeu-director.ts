@@ -8,7 +8,10 @@
  *   edge; phase two (its `zmeuExited` report, or ZMEU_EXIT_TIMEOUT_MS) sends
  *   `home: true` with the entry edge to the new home;
  * - one unref'd timer wakes the logic at the next deadline (dwell end,
- *   suppression move, exit timeout); cursor moves only cost a display lookup.
+ *   suppression move, exit timeout); cursor moves only cost a display lookup;
+ * - a page that loads well after the arrival (crash reload, overlay rebuild on
+ *   a display-metrics change) fades the dragon in (`puff`) instead of replaying
+ *   the hello / edge / sky entry it already saw.
  */
 import { IPC } from '../shared/ipc';
 import {
@@ -31,6 +34,13 @@ import { createLogger } from './log';
 import type { Overlay, OverlayManager } from './overlay-manager';
 
 const log = createLogger('zmeu');
+
+/**
+ * How long after a home decision a freshly loaded page still gets its entry
+ * (startup: the hello reaches pages that are still loading). Later loads puff in.
+ */
+export const ZMEU_ARRIVAL_REPLAY_MS = 10_000;
+const PUFF_IN: Readonly<Arrival> = { via: 'puff', edge: null, at: 0 };
 
 /** The slice of OverlayManager the director uses (tests pass a fake). */
 export type ZmeuOverlays = Pick<OverlayManager, 'list' | 'sendTo'>;
@@ -58,8 +68,10 @@ interface Arrival {
 
 export class ZmeuDirector {
   private readonly st: ZmeuHomeState = createZmeuHomeState();
-  /** How the dragon arrived on its current home (re-sent to a reloaded overlay). */
+  /** How the dragon arrived on its current home (re-sent to a page that loads soon after). */
   private arrival: Arrival = { via: null, edge: null, at: 0 };
+  /** When that arrival was decided (see ZMEU_ARRIVAL_REPLAY_MS). */
+  private arrivalAt = Number.NEGATIVE_INFINITY;
   /** Phase one of a handoff: what the old home was told. */
   private exit: Arrival | null = null;
   /** A call that waits for the handoff it started. */
@@ -68,6 +80,8 @@ export class ZmeuDirector {
   private timerAt = Number.POSITIVE_INFINITY;
   /** Display under the cursor at the last noteCursor (cheap change detection). */
   private cursorDisplay: number | null = null;
+  /** Overlay rects as of the last step ('overlays-changed' always syncs): noteCursor allocates nothing. */
+  private rects: ZmeuDisplay[] = [];
   private disposed = false;
 
   constructor(private readonly deps: ZmeuDirectorDeps) {}
@@ -81,14 +95,7 @@ export class ZmeuDirector {
   /** Cursor moved: O(displays); runs the logic only when it crosses into another display. */
   noteCursor(p: Point): void {
     if (this.disposed || !this.st.wasActive) return;
-    let under: number | null = null;
-    for (const o of this.deps.overlays.list()) {
-      const b = o.info.bounds;
-      if (p.x >= b.x && p.y >= b.y && p.x < b.x + b.width && p.y < b.y + b.height) {
-        under = o.id;
-        break;
-      }
-    }
+    const under = zmeuDisplayAt(this.rects, p);
     if (under === this.cursorDisplay) return;
     this.cursorDisplay = under;
     this.sync('cursor');
@@ -106,7 +113,8 @@ export class ZmeuDirector {
     const st = this.st;
     if (overlay.id === st.home) {
       if (st.pending) return { seq: st.seq, home: false, via: this.exit?.via ?? null, edge: this.exit?.edge ?? null, at: this.exit?.at ?? 0 };
-      return { seq: st.seq, home: true, ...this.arrival };
+      const fresh = this.now() - this.arrivalAt < ZMEU_ARRIVAL_REPLAY_MS;
+      return { seq: st.seq, home: true, ...(fresh ? this.arrival : PUFF_IN) };
     }
     return notHome(st.seq);
   }
@@ -137,6 +145,7 @@ export class ZmeuDirector {
   private step(force?: 'call'): ZmeuHomeAction {
     const cursor = this.deps.readCursor();
     const displays = this.displays();
+    this.rects = displays;
     this.cursorDisplay = zmeuDisplayAt(displays, cursor);
     return stepZmeuHome(this.st, {
       displays,
@@ -159,6 +168,7 @@ export class ZmeuDirector {
         this.exit = null;
         this.callAfterArrival = false;
         this.arrival = { via: action.via, edge: null, at: 0 };
+        this.arrivalAt = this.now();
         log.info(`home → display ${action.to} via ${action.via} (seq ${seq}, ${reason})`);
         this.broadcast();
         break;
@@ -186,6 +196,7 @@ export class ZmeuDirector {
     if (!p) return;
     this.exit = null;
     this.arrival = { via: p.via, edge: p.edge, at: p.at };
+    this.arrivalAt = this.now();
     log.info(`handoff done → display ${p.to} (${reason})`);
     const target = this.overlay(p.to);
     if (target) this.deps.overlays.sendTo<ZmeuHomeFrame>(target, IPC.zmeuHome, this.frameFor(target));

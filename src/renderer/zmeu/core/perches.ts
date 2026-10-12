@@ -18,6 +18,8 @@ export interface ZmeuPerch {
   /** 1 = the tail drapes over a window edge, 0 = resting on the floor. */
   drape: number;
   window: boolean;
+  /** Window perches: the app key (ZmeuSenses.winKey) of the window it sits on; 0 on the floor. */
+  key: number;
   /** Window perches: anchor x as a fraction of the window width. */
   fx: number;
   /** Usable ledge span (CSS px), for make-way hops. */
@@ -26,7 +28,7 @@ export interface ZmeuPerch {
 }
 
 export function createPerch(): ZmeuPerch {
-  return { x: 0, y: 0, facing: 1, drape: 0, window: false, fx: 0.5, x0: 0, x1: 0 };
+  return { x: 0, y: 0, facing: 1, drape: 0, window: false, key: 0, fx: 0.5, x0: 0, x1: 0 };
 }
 
 export function copyPerch(dst: ZmeuPerch, src: ZmeuPerch): ZmeuPerch {
@@ -35,6 +37,7 @@ export function copyPerch(dst: ZmeuPerch, src: ZmeuPerch): ZmeuPerch {
   dst.facing = src.facing;
   dst.drape = src.drape;
   dst.window = src.window;
+  dst.key = src.key;
   dst.fx = src.fx;
   dst.x0 = src.x0;
   dst.x1 = src.x1;
@@ -71,6 +74,7 @@ export function pickWindowPerch(s: Readonly<ZmeuSenses>, rng: Random, out: ZmeuP
   out.facing = s.cursorKnown && s.cursorInside ? (s.cx >= x ? 1 : -1) : rng.next() < 0.5 ? -1 : 1;
   out.drape = 1;
   out.window = true;
+  out.key = s.winKey;
   out.fx = (x - w.x) / w.width;
   out.x0 = span.x0;
   out.x1 = span.x1;
@@ -88,6 +92,7 @@ export function floorPerches(s: Readonly<ZmeuSenses>, out: readonly ZmeuPerch[])
     p.facing = fr[i]! < 0.5 ? 1 : -1;
     p.drape = 0;
     p.window = false;
+    p.key = 0;
     p.fx = 0;
     p.x0 = m;
     p.x1 = s.width - m;
