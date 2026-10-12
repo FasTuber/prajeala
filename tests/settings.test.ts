@@ -90,6 +90,9 @@ describe('normalizeSettings', () => {
       audioSensitivity: 0.75,
       focusMinutes: 50,
       torch: true,
+      zmeu: true,
+      zmeuTemper: 'wild',
+      zmeuSize: 'large',
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });

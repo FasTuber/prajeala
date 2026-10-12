@@ -140,6 +140,19 @@ describe('Mod Torță gating', () => {
   });
 });
 
+describe('Zmeul gating', () => {
+  it('is Pro only; temper and size pass through', () => {
+    const stored = normalizeSettings({ zmeu: true, zmeuTemper: 'wild' });
+    expect(effectiveSettings(stored, true).zmeu).toBe(true);
+    const free = effectiveSettings(stored, false);
+    expect(free.zmeu).toBe(false);
+    expect(free).not.toBe(stored);
+    expect(free.zmeuTemper).toBe('wild');
+    expect(stripLockedChoices({ zmeu: true, zmeuTemper: 'wild' }, false)).toEqual({ zmeuTemper: 'wild' });
+    expect(lockedFeaturesInUse(stored, false, 1)).toContain('zmeu');
+  });
+});
+
 describe('custom palette and colours', () => {
   it('normalizes custom colours and keeps them out of free installs', async () => {
     const { customPalette, resolvePalette, PALETTE_DEFINITIONS } = await import('../src/shared/palettes');

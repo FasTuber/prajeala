@@ -24,6 +24,11 @@ export type AudioStyle = (typeof AUDIO_STYLES)[number];
 /** What to do on battery power: keep going, a lighter profile, or stop drawing. */
 export const BATTERY_MODES = ['normal', 'eco', 'pause'] as const;
 export type BatteryMode = (typeof BATTERY_MODES)[number];
+/** Zmeul: how mischievous the desktop dragon is, and how big. */
+export const ZMEU_TEMPERS = ['calm', 'playful', 'wild'] as const;
+export type ZmeuTemper = (typeof ZMEU_TEMPERS)[number];
+export const ZMEU_SIZES = ['small', 'medium', 'large'] as const;
+export type ZmeuSize = (typeof ZMEU_SIZES)[number];
 
 export interface Settings {
   /** Master switch. When false the overlays stay alive but render nothing. */
@@ -72,6 +77,10 @@ export interface Settings {
   focusMinutes: number;
   /** Mod Torță: the screen goes dark and the cursor is a torch; fires light their surroundings. */
   torch: boolean;
+  /** Zmeul (Pro): a fire dragon that lives on the desktop. */
+  zmeu: boolean;
+  zmeuTemper: ZmeuTemper;
+  zmeuSize: ZmeuSize;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -101,6 +110,9 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   audioSensitivity: 0.5,
   focusMinutes: 25,
   torch: false,
+  zmeu: false,
+  zmeuTemper: 'playful',
+  zmeuSize: 'medium',
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
@@ -253,6 +265,9 @@ export function normalizeSettings(input: unknown): Settings {
     audioSensitivity: pickNumber(src.audioSensitivity, d.audioSensitivity, L.audioSensitivity.min, L.audioSensitivity.max),
     focusMinutes: Math.round(pickNumber(src.focusMinutes, d.focusMinutes, L.focusMinutes.min, L.focusMinutes.max)),
     torch: pickBool(src.torch, d.torch),
+    zmeu: pickBool(src.zmeu, d.zmeu),
+    zmeuTemper: pickEnum(src.zmeuTemper, ZMEU_TEMPERS, d.zmeuTemper),
+    zmeuSize: pickEnum(src.zmeuSize, ZMEU_SIZES, d.zmeuSize),
   };
 }
 
