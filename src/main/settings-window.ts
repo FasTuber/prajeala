@@ -30,6 +30,8 @@ export interface SettingsWindowDeps {
   testBurst(): void;
   burn(mode: BurnMode): void;
   focusAction(action: FocusAction): void;
+  /** Zmeul: "call the dragon" to the cursor. */
+  zmeuCall(): void;
   /** The page booted (or failed to) — used by --smoke. */
   onReady?(report: { ok: boolean; error?: string }): void;
 }
@@ -197,6 +199,9 @@ export class SettingsWindow {
       const a = raw as { type?: unknown; minutes?: unknown };
       if (a.type === 'start') this.deps.focusAction({ type: 'start', minutes: clampFocusMinutes(a.minutes) });
       else if (a.type === 'pause' || a.type === 'resume' || a.type === 'cancel') this.deps.focusAction({ type: a.type });
+    });
+    ipcMain.on(UI_IPC.zmeuCall, (event) => {
+      if (this.fromUs(event)) this.deps.zmeuCall();
     });
     ipcMain.on(UI_IPC.ready, (event, report: unknown) => {
       if (!this.fromUs(event)) return;

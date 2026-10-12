@@ -16,6 +16,7 @@ import type { Lang } from './i18n';
 import type { LicenseActionResult, LicenseStatus } from './license';
 import type { ExternalLink } from './product';
 import type { Settings } from './settings';
+import type { ZmeuExitReport, ZmeuHomeFrame } from './zmeu';
 
 export interface Rect {
   x: number;
@@ -99,6 +100,8 @@ export interface RendererStats {
   simWidth: number;
   simHeight: number;
   sparks: number;
+  /** Zmeul renderer: 0 not built, 1 ok, 2 shader compile error (the fire keeps running). */
+  zmeu?: 0 | 1 | 2;
 }
 
 /** What the renderer needs from the power governor. */
@@ -140,6 +143,10 @@ export const IPC = {
   visibility: 'prajeala:visibility',
   /** Termen limită: focus timer state (on change + every few seconds while running). */
   focusTimer: 'prajeala:focus-timer',
+  /** Zmeul: is the dragon on this display, and how does it arrive / leave (ZmeuHomeFrame). */
+  zmeuHome: 'prajeala:zmeu-home',
+  /** Zmeul: "call the dragon" to these local coordinates (sent to the home overlay only). */
+  zmeuCall: 'prajeala:zmeu-call',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
@@ -147,12 +154,16 @@ export const IPC = {
   burnDone: 'prajeala:burn-done',
   stats: 'prajeala:stats',
   log: 'prajeala:log',
+  /** Zmeul: the dragon finished flying off this display (handoff phase one). */
+  zmeuExited: 'prajeala:zmeu-exited',
 
   // renderer → main (invoke)
   getSettings: 'prajeala:get-settings',
   getDisplay: 'prajeala:get-display',
   getCapabilities: 'prajeala:get-capabilities',
   updateSettings: 'prajeala:update-settings',
+  /** Zmeul: the current home frame (pulled once at init: pushes before subscribe() are lost). */
+  getZmeuHome: 'prajeala:get-zmeu-home',
 } as const;
 
 export type Unsubscribe = () => void;
@@ -181,6 +192,10 @@ export interface PrajealaApi {
   onVisibility(cb: (v: { hidden: boolean }) => void): Unsubscribe;
   burnReady(): void;
   burnDone(report: BurnDoneReport): void;
+  getZmeuHome(): Promise<ZmeuHomeFrame>;
+  onZmeuHome(cb: (frame: ZmeuHomeFrame) => void): Unsubscribe;
+  onZmeuCall(cb: (p: { x: number; y: number }) => void): Unsubscribe;
+  zmeuExited(report: ZmeuExitReport): void;
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;
@@ -260,6 +275,8 @@ export const UI_IPC = {
   /** main → window: live audio level + bands for the meter (~15 Hz, only while open). */
   audioLevel: 'prajeala-ui:audio-level',
   testBurst: 'prajeala-ui:test-burst',
+  /** Zmeul: "call the dragon" to the cursor. */
+  zmeuCall: 'prajeala-ui:zmeu-call',
   ready: 'prajeala-ui:ready',
   // main → window
   state: 'prajeala-ui:state',
@@ -277,6 +294,7 @@ export interface PrajealaUiApi {
   testBurst(): void;
   burn(mode: BurnMode): void;
   focusAction(action: FocusAction): void;
+  zmeuCall(): void;
   reportReady(report: { ok: boolean; error?: string }): void;
   onState(cb: (state: UiState) => void): Unsubscribe;
   onFocus(cb: (focus: UiFocus) => void): Unsubscribe;

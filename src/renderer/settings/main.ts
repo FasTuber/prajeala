@@ -22,7 +22,17 @@ import type { LicenseActionResult } from '../../shared/license';
 import { resolvePalette, type PaletteDefinition } from '../../shared/palettes';
 import { isIntensityLocked, isPaletteLocked } from '../../shared/pro';
 import { SCENES, SCENE_EMOJI, activeScene, sceneNeedsPro, scenePatch, seasonAt, type Scene } from '../../shared/scenes';
-import { CURSOR_MODES, INTENSITIES, PALETTES, SETTINGS_LIMITS, type Settings } from '../../shared/settings';
+import {
+  CURSOR_MODES,
+  INTENSITIES,
+  PALETTES,
+  SETTINGS_LIMITS,
+  ZMEU_SIZES,
+  ZMEU_TEMPERS,
+  type Settings,
+  type ZmeuSize,
+  type ZmeuTemper,
+} from '../../shared/settings';
 import { createMockUiApi } from './mock';
 
 type Sync = (state: UiState) => void;
@@ -111,6 +121,7 @@ class SettingsPage {
         this.toggleRow('sparks', t('sparks'), null, () => true),
         this.typingRow(),
         this.torchRow(),
+        this.zmeuRow(),
         h('div', {}, [h('button', { class: 'btn', text: `🔥 ${t('testBurst')}`, on: { click: () => this.api.testBurst() } })]),
       ]),
       this.focusCard(),
@@ -173,15 +184,27 @@ class SettingsPage {
   private welcomeCard(): HTMLElement {
     const t = this.t;
     const trial = h('p', { class: 'small' });
+    // Zmeul CTA (Pro or trial): turn the dragon on and call it to the cursor.
+    const wake = h('button', {
+      class: 'btn',
+      text: `🐉 ${t('welcomeZmeu')}`,
+      on: {
+        click: () => {
+          if (!this.state.license.pro) return;
+          void this.update({ zmeu: true }).then(() => this.api.zmeuCall());
+        },
+      },
+    });
     this.syncs.push((s) => {
       trial.textContent = s.license.tier === 'trial' ? `✨ ${t('welcomeTrial', { days: s.license.trialDaysLeft })}` : '';
       trial.hidden = s.license.tier !== 'trial';
+      wake.hidden = !s.license.pro || s.settings.zmeu;
     });
     this.welcome = h('section', { class: 'card welcome', attrs: { hidden: '' } }, [
       h('h3', { text: `🔥 ${t('welcomeTitle')}` }),
       h('p', { class: 'muted', text: t('welcomeBody') }),
       trial,
-      h('div', {}, [
+      h('div', { class: 'seg' }, [
         h('button', {
           class: 'btn primary',
           text: t('gotIt'),
@@ -191,6 +214,7 @@ class SettingsPage {
             },
           },
         }),
+        wake,
       ]),
     ]);
     return this.welcome;
@@ -221,6 +245,7 @@ class SettingsPage {
         h('li', { text: t('proFeaturePalettes', { count: PALETTES.length }) }),
         h('li', { text: t('proFeatureInferno') }),
         h('li', { text: t('proFeatureTorch') }),
+        h('li', { text: t('proFeatureZmeu') }),
         h('li', { text: t('proFeatureEq') }),
         h('li', { text: t('proFeatureMonitors') }),
         h('li', { text: t('proFeatureSupport') }),
@@ -594,6 +619,58 @@ class SettingsPage {
     return h('label', { class: 'row' }, [
       h('span', { class: 'label' }, [h('span', {}, [`🔦 ${t('torch')}`, lock]), h('span', { class: 'note', text: t('torchNote') })]),
       h('span', { class: 'switch' }, [input, h('span')]),
+    ]);
+  }
+
+  /** Zmeul: Pro-only toggle; while on, its temper, size and "call the dragon". */
+  private zmeuRow(): HTMLElement {
+    const t = this.t;
+    const input = h('input', { attrs: { type: 'checkbox', role: 'switch', 'aria-label': t('zmeu') } });
+    input.addEventListener('change', () => {
+      if (!this.state.license.pro) {
+        input.checked = false;
+        this.showLocked(t('lockedZmeu'));
+        return;
+      }
+      void this.update({ zmeu: input.checked });
+    });
+    const lock = h('span', { class: 'lock', text: 'PRO' });
+    const note = h('span', { class: 'note' });
+    const temperLabels: Record<ZmeuTemper, string> = { calm: t('zmeuCalm'), playful: t('zmeuPlayful'), wild: t('zmeuWild') };
+    const sizeLabels: Record<ZmeuSize, string> = { small: t('zmeuSizeSmall'), medium: t('zmeuSizeMedium'), large: t('zmeuSizeLarge') };
+    const temper = this.segmented(
+      ZMEU_TEMPERS,
+      (v) => temperLabels[v],
+      (s) => s.settings.zmeuTemper,
+      () => false,
+      (v) => void this.update({ zmeuTemper: v }),
+      () => undefined,
+    );
+    const size = this.segmented(
+      ZMEU_SIZES,
+      (v) => sizeLabels[v],
+      (s) => s.settings.zmeuSize,
+      () => false,
+      (v) => void this.update({ zmeuSize: v }),
+      () => undefined,
+    );
+    const call = h('button', { class: 'btn', text: `🐉 ${t('zmeuCall')}`, on: { click: () => this.api.zmeuCall() } });
+    const sub = h('div', { class: 'stack sub' }, [this.labeled(t('zmeuTemper'), temper), this.labeled(t('zmeuSize'), size), h('div', {}, [call])]);
+    this.syncs.push((s) => {
+      const on = s.license.pro && s.settings.zmeu;
+      input.checked = on;
+      lock.hidden = s.license.tier === 'pro';
+      const limited = !s.capabilities.globalClicks || !s.capabilities.activeWindow;
+      note.textContent = limited ? `${t('zmeuNote')} ${t('zmeuLimited')}` : t('zmeuNote');
+      sub.hidden = !on;
+      call.disabled = !s.settings.enabled;
+    });
+    return h('div', { class: 'stack' }, [
+      h('label', { class: 'row' }, [
+        h('span', { class: 'label' }, [h('span', {}, [`🐉 ${t('zmeu')}`, lock]), note]),
+        h('span', { class: 'switch' }, [input, h('span')]),
+      ]),
+      sub,
     ]);
   }
 

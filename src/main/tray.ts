@@ -19,7 +19,7 @@ import { FOCUS_PRESETS_MIN, type FocusPhase } from '../shared/focus';
 import { isIntensityLocked, isPaletteLocked } from '../shared/pro';
 import { SCENES, SCENE_EMOJI, activeScene, sceneNeedsPro, scenePatch, type Scene } from '../shared/scenes';
 import { PRODUCT } from '../shared/product';
-import { CURSOR_MODES, INTENSITIES, PALETTES, type Settings } from '../shared/settings';
+import { CURSOR_MODES, INTENSITIES, PALETTES, ZMEU_TEMPERS, type Settings, type ZmeuTemper } from '../shared/settings';
 import { createLogger } from './log';
 import { trayAssetPath } from './paths';
 
@@ -49,6 +49,8 @@ export interface TrayActions {
     togglePause(): void;
     cancel(): void;
   };
+  /** Zmeul: "call the dragon" to the cursor. */
+  zmeuCall(): void;
   /** Opens the settings window; `pro` scrolls to the Prăjeală Pro card. */
   openSettingsWindow(focus?: 'pro'): void;
   openSettingsFile(): void;
@@ -170,6 +172,23 @@ export class TrayController {
         : { label, type: 'radio', checked: current === scene, click: () => this.actions.updateSettings(scenePatch(scene, pro)) };
     });
 
+    // Zmeul (Pro): on/off, temper, and "call" while it is out.
+    const temperLabels: Record<ZmeuTemper, string> = { calm: t('zmeuCalm'), playful: t('zmeuPlayful'), wild: t('zmeuWild') };
+    const zmeu: MenuItemConstructorOptions = pro
+      ? {
+          label: `🐉 ${t('zmeu')}`,
+          submenu: [
+            { label: t('zmeu'), type: 'checkbox', checked: s.zmeu, click: () => this.actions.updateSettings({ zmeu: !this.actions.getSettings().zmeu }) },
+            { type: 'separator' },
+            ...ZMEU_TEMPERS.map(
+              (value): MenuItemConstructorOptions => ({ label: temperLabels[value], type: 'radio', checked: s.zmeuTemper === value, click: set({ zmeuTemper: value }) }),
+            ),
+            { type: 'separator' },
+            { label: `🐉 ${t('zmeuCall')}`, enabled: s.enabled && s.zmeu, click: () => this.actions.zmeuCall() },
+          ],
+        }
+      : locked(`🐉 ${t('zmeu')}`);
+
     const fs = this.actions.focus.state();
     const focusItems: MenuItemConstructorOptions[] =
       fs.phase === 'running' || fs.phase === 'paused'
@@ -241,6 +260,7 @@ export class TrayController {
       pro
         ? { label: `🔦 ${t('torch')}`, type: 'checkbox', checked: s.torch, click: () => this.actions.updateSettings({ torch: !this.actions.getSettings().torch }) }
         : locked(`🔦 ${t('torch')}`),
+      zmeu,
       { label: t('sparks'), type: 'checkbox', checked: s.sparks, click: toggle('sparks') },
       { label: t('debugHud'), type: 'checkbox', checked: s.showDebugHud, click: toggle('showDebugHud') },
       { label: t('idleSleep'), type: 'checkbox', checked: s.idleSleep, click: toggle('idleSleep') },

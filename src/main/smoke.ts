@@ -157,6 +157,9 @@ export class SmokeRunner {
       if (!rec?.ready?.ok) return;
       if (!rec.stats || rec.stats.frames < this.options.frames) return;
     }
+    // TODO(zmeu, integrator): index.ts forces `zmeu: true` in smoke runs. Once the renderer
+    // reports `stats.zmeu`, fail when any overlay reports 2 (shader compile error) and when
+    // none reports 1 by the frame target (spec §7, src/main/smoke.ts).
     this.finish(true, {});
   }
 

@@ -2,8 +2,8 @@
  * Prăjeală — main process entry (ESM, bundled to dist/main/index.mjs).
  *
  * Wires: CLI flags → Chromium switches → settings store + licence → overlay windows →
- * cursor / active-window trackers → tray, settings window, global shortcuts →
- * optional smoke run.
+ * cursor / active-window trackers → Zmeul's home director → tray, settings window,
+ * global shortcuts → optional smoke run.
  * This is a tray application: closing every window never quits; only the
  * tray, the global shortcut or the smoke runner do.
  */
@@ -25,6 +25,7 @@ import { applyPowerProfile, coversDisplay, isDesktopShell } from '../shared/powe
 import { FREE_MAX_DISPLAYS, effectiveSettings, stripLockedChoices } from '../shared/pro';
 import { PRODUCT, externalUrl } from '../shared/product';
 import type { Settings } from '../shared/settings';
+import { ZMEU_NOT_HOME, type ZmeuExitReport } from '../shared/zmeu';
 import { ActiveWindowTracker, type ActiveWindowInfo } from './active-window-tracker';
 import { parseCli, type CliOptions } from './cli';
 import { CursorTracker, type CursorSample } from './cursor-tracker';
@@ -34,7 +35,7 @@ import { LicenseManager } from './license/license-manager';
 import { BurnController } from './burn';
 import { FocusService } from './focus-service';
 import { MediaHost, hardenDefaultSession } from './media-host';
-import { OverlayManager } from './overlay-manager';
+import { OverlayManager, type Overlay } from './overlay-manager';
 import { PowerGovernor } from './power-governor';
 import {
   appIconPath,
@@ -52,10 +53,14 @@ import { SETTINGS_WINDOW_TITLE, SettingsWindow } from './settings-window';
 import { registerShortcuts, unregisterShortcuts } from './shortcuts';
 import { SmokeRunner } from './smoke';
 import { TrayController } from './tray';
+import { ZmeuDirector } from './zmeu-director';
 
 const cli: CliOptions = parseCli(process.argv.slice(1));
 setVerbose(cli.verbose);
 const log = createLogger('main');
+
+/** Key presses forwarded for Zmeul alone (no typing fire): at most one per this many ms. */
+const ZMEU_KEY_INTERVAL_MS = 250;
 
 // ── Chromium switches (must precede app.whenReady) ──────────────────────────
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -90,6 +95,7 @@ interface Runtime {
   cursor: CursorTracker;
   activeWindow: ActiveWindowTracker;
   tray: TrayController;
+  zmeu: ZmeuDirector;
   smoke: SmokeRunner | null;
   capabilities: HostCapabilities;
   shuttingDown: boolean;
@@ -180,6 +186,8 @@ async function main(): Promise<void> {
     smoke: cli.smoke,
   };
 
+  /** Zmeul's home display; created once the trackers exist (see below). */
+  let director: ZmeuDirector | null = null;
   const overlays = new OverlayManager({
     preloadPath,
     rendererHtmlPath,
@@ -190,24 +198,38 @@ async function main(): Promise<void> {
     updateSettings,
     getCapabilities: () => capabilities,
     maxDisplays: () => (license.pro ? Infinity : FREE_MAX_DISPLAYS),
+    getZmeuHome: (overlay) => director?.frameFor(overlay) ?? ZMEU_NOT_HOME,
   });
 
   // ── Trackers ───────────────────────────────────────────────────────────
+  let lastZmeuKey = Number.NEGATIVE_INFINITY;
   const cursor = new CursorTracker({
     hz: cli.cursorHz,
     hooks: !cli.smoke && !cli.noHooks,
     onMove: (sample) => {
       governor.noteInput();
       broadcastCursor(overlays, sample);
+      director?.noteCursor(sample);
     },
     onKey: () => {
       governor.noteInput();
       const s = effective();
-      if (s.enabled && s.typingFire) overlays.sendToAll(IPC.keyPress, () => null);
+      if (!s.enabled) return;
+      if (s.typingFire) {
+        overlays.sendToAll(IPC.keyPress, () => null);
+      } else if (s.zmeu) {
+        // Zmeul only needs "someone is typing" (quiet mode): at most 4 per second.
+        const now = performance.now();
+        if (now - lastZmeuKey >= ZMEU_KEY_INTERVAL_MS) {
+          lastZmeuKey = now;
+          overlays.sendToAll(IPC.keyPress, () => null);
+        }
+      }
     },
     onButton: (sample, button, type) => {
       governor.noteInput();
-      if (!store.get().clickBursts) return;
+      // Zmeul reacts to clicks (pokes, glances) even without click bursts.
+      if (!store.get().clickBursts && !effective().zmeu) return;
       overlays.sendToAll<PointerButtonEvent>(IPC.pointerButton, (info) => {
         const local = toLocalPoint(sample, info.bounds);
         return {
@@ -227,6 +249,29 @@ async function main(): Promise<void> {
   let lastActiveWindow: ActiveWindowInfo | null = null;
   /** Displays currently hidden because a fullscreen app covers them (game mode). */
   let gameDisplays = new Set<number>();
+
+  // ── Zmeul: which display the dragon lives on ───────────────────────────
+  const zmeu = new ZmeuDirector({
+    overlays,
+    // Power sleep does not count: the dragon naps where it is. Neither does the lock
+    // screen: the overlays hide and the dragon stays frozen in place (no depart, no
+    // second hello on unlock; the renderer's resumeAfter covers a long absence).
+    active: () => {
+      const s = effective();
+      return s.enabled && s.zmeu;
+    },
+    held: () => governor.current.paused,
+    suppressed: () => gameDisplays,
+    readCursor: () => cursor.readPoint(),
+    primaryId: () => {
+      try {
+        return screen.getPrimaryDisplay().id;
+      } catch {
+        return overlays.list().find((o) => o.info.isPrimary)?.id ?? -1;
+      }
+    },
+  });
+  director = zmeu;
   const updateGameMode = (): void => {
     const s = store.get();
     const next = new Set<number>();
@@ -239,6 +284,7 @@ async function main(): Promise<void> {
     log.info(next.size ? `game mode: fullscreen app "${w?.app ?? ''}", hiding ${next.size} overlay(s)` : 'game mode: fullscreen app gone');
     gameDisplays = next;
     overlays.setSuppressed(gameDisplays);
+    zmeu.sync('game mode');
     // May run before the tray/settings window exist (first active-window poll).
     runtime?.tray.refresh();
     runtime?.settingsWindow.pushState();
@@ -477,6 +523,7 @@ async function main(): Promise<void> {
       else if (action.type === 'resume') focus.resume();
       else focus.cancel();
     },
+    zmeuCall: () => zmeu.call(),
     onReady: (report) => smokeRunner?.uiReady(report),
   });
 
@@ -504,18 +551,34 @@ async function main(): Promise<void> {
       togglePause: () => focus.togglePause(),
       cancel: () => focus.cancel(),
     },
+    zmeuCall: () => zmeu.call(),
     openSettingsWindow: (focus) => settingsWindow.open(focus ?? null),
     openSettingsFile,
     quit,
   });
 
-  runtime = { store, mediaHost, focus, governor, license, settingsWindow, overlays, cursor, activeWindow, tray, smoke: null, capabilities, shuttingDown: false };
+  runtime = {
+    store,
+    mediaHost,
+    focus,
+    governor,
+    license,
+    settingsWindow,
+    overlays,
+    cursor,
+    activeWindow,
+    tray,
+    zmeu,
+    smoke: null,
+    capabilities,
+    shuttingDown: false,
+  };
 
   // ── Settings → everything else ─────────────────────────────────────────
   let lastEnabled: boolean | null = null;
   const applySettings = (s: Settings): void => {
     overlays.setVisible(s.enabled && !governor.current.paused);
-    activeWindow.setEnabled(s.enabled && (s.burnActiveWindow || s.gameMode) && capabilities.activeWindow);
+    activeWindow.setEnabled(s.enabled && (s.burnActiveWindow || s.gameMode || s.zmeu) && capabilities.activeWindow);
     if (lastEnabled !== s.enabled) log.info(s.enabled ? 'fire enabled' : 'fire paused');
     lastEnabled = s.enabled;
   };
@@ -532,16 +595,19 @@ async function main(): Promise<void> {
     broadcastSettings();
     updateGameMode();
     syncAudio();
+    zmeu.sync('settings');
   });
   governor.onChange((power) => {
     overlays.sendToAll(IPC.power, () => ({ sleeping: power.sleeping }));
     broadcastSettings(); // eco profile, paused visibility, tray tooltip, settings window
     syncAudio();
+    zmeu.sync('power');
   });
   license.onChange((status) => {
     log.info(`licence: ${status.tier}${status.source ? ` (${status.source})` : ''}`);
     broadcastSettings();
     overlays.syncDisplays('licence changed');
+    zmeu.sync('licence'); // a lapsed licence makes the dragon fly off
   });
 
   // ── Renderer → main messages ───────────────────────────────────────────
@@ -559,9 +625,12 @@ async function main(): Promise<void> {
     log.debug(`[overlay#${overlay.info.index}] frames=${stats.frames} fps=${stats.fps.toFixed(1)} sparks=${stats.sparks}`);
   });
   overlays.on('overlays-changed', () => {
-    // New windows start hidden; respect the current pause state.
-    applySettings(store.get());
+    // New windows start hidden; respect the current pause state. Effective settings:
+    // a free install with a stored `zmeu: true` must not start the window poller.
+    applySettings(effective());
+    zmeu.sync('overlays');
   });
+  overlays.on('zmeu-exited', (overlay: Overlay, report: ZmeuExitReport) => zmeu.onExited(overlay, report));
   overlays.on('loaded', (overlay) => {
     // A freshly (re)loaded page gets the current cursor and active window right away,
     // instead of waiting for the next change.
@@ -582,10 +651,14 @@ async function main(): Promise<void> {
     }
     overlays.sendTo(overlay, IPC.power, { sleeping: governor.current.sleeping });
     if (focus.phase !== 'idle') overlays.sendTo(overlay, IPC.focusTimer, focus.frame);
+    overlays.sendTo(overlay, IPC.zmeuHome, zmeu.frameFor(overlay));
   });
 
   // ── Smoke mode ─────────────────────────────────────────────────────────
   if (cli.smoke) {
+    // Zmeul is lazy (no shader compiled while off): force it on so CI builds it. Persist is
+    // off in smoke runs, and the first-run trial counts as Pro.
+    store.update({ zmeu: true });
     const smoke = new SmokeRunner(
       { frames: cli.smokeFrames, timeoutMs: cli.smokeTimeoutMs, expectUi: true, expectBurn: true },
       overlays,
@@ -699,6 +772,7 @@ function shutdown(): void {
   rt.cursor.stop();
   rt.activeWindow.stop();
   rt.tray.destroy();
+  rt.zmeu.dispose();
   rt.store.flushSync();
   rt.overlays.destroy();
 }

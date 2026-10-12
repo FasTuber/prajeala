@@ -97,6 +97,7 @@ export function createMockUiApi(search: string): PrajealaUiApi {
       }
       pushState();
     },
+    zmeuCall: () => console.info('[mock] call the dragon'),
     reportReady: (r) => console.info('[mock] ready', r),
     onState: (cb) => {
       stateListeners.add(cb);

@@ -8,6 +8,7 @@
  *   overlays.on('ready', (overlay, report))
  *   overlays.on('stats', (overlay, stats))
  *   overlays.on('log',   (overlay, level, message))
+ *   overlays.on('zmeu-exited', (overlay, report))   // validated ZmeuExitReport
  */
 import { EventEmitter } from 'node:events';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +21,7 @@ import {
   type RendererStats,
 } from '../shared/ipc';
 import type { Settings } from '../shared/settings';
+import { sanitizeZmeuExit, type ZmeuHomeFrame } from '../shared/zmeu';
 import { createLogger, type LogLevel } from './log';
 
 const log = createLogger('overlay');
@@ -39,6 +41,8 @@ export interface OverlayContext {
   getCapabilities(): HostCapabilities;
   /** How many displays get an overlay (primary first); Infinity = all. */
   maxDisplays(): number;
+  /** Zmeul: the home frame for this overlay (answers the renderer's pull at init). */
+  getZmeuHome(overlay: Overlay): ZmeuHomeFrame;
 }
 
 export interface Overlay {
@@ -428,6 +432,11 @@ export class OverlayManager extends EventEmitter {
       return overlay.info;
     });
     ipcMain.handle(IPC.updateSettings, (_event, patch: unknown) => this.ctx.updateSettings(patch));
+    ipcMain.handle(IPC.getZmeuHome, (event) => {
+      const overlay = this.byWebContents(event.sender);
+      if (!overlay) throw new Error('unknown overlay window');
+      return this.ctx.getZmeuHome(overlay);
+    });
 
     ipcMain.on(IPC.ready, (event: IpcMainEvent, report: unknown) => {
       const overlay = this.byWebContents(event.sender);
@@ -438,6 +447,11 @@ export class OverlayManager extends EventEmitter {
       const overlay = this.byWebContents(event.sender);
       if (!overlay) return;
       this.emit('stats', overlay, sanitizeStats(stats));
+    });
+    ipcMain.on(IPC.zmeuExited, (event: IpcMainEvent, report: unknown) => {
+      const overlay = this.byWebContents(event.sender);
+      const r = sanitizeZmeuExit(report);
+      if (overlay && r) this.emit('zmeu-exited', overlay, r);
     });
     ipcMain.on(IPC.burnReady, (event: IpcMainEvent) => {
       const overlay = this.byWebContents(event.sender);
@@ -484,11 +498,13 @@ function sanitizeReady(input: unknown): RendererReadyReport {
 
 function sanitizeStats(input: unknown): RendererStats {
   const s = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-  return {
+  const out: RendererStats = {
     frames: num(s.frames),
     fps: num(s.fps),
     simWidth: num(s.simWidth),
     simHeight: num(s.simHeight),
     sparks: num(s.sparks),
   };
+  if (s.zmeu === 0 || s.zmeu === 1 || s.zmeu === 2) out.zmeu = s.zmeu;
+  return out;
 }

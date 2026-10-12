@@ -42,6 +42,9 @@ const api: PrajealaUiApi = {
   focusAction: (action) => {
     ipcRenderer.send(UI_IPC.focusAction, action);
   },
+  zmeuCall: () => {
+    ipcRenderer.send(UI_IPC.zmeuCall);
+  },
   reportReady: (report) => {
     ipcRenderer.send(UI_IPC.ready, { ok: report.ok === true, error: report.error ? String(report.error) : undefined });
   },

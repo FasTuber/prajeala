@@ -20,6 +20,7 @@ import type {
 import { CURSOR_MODES, INTENSITIES, PALETTES, mergeSettings, normalizeSettings, type Settings } from '../../shared/settings';
 import type { AudioFrame } from '../../shared/audio-contract';
 import type { BurnStart } from '../../shared/burn';
+import { ZMEU_NOT_HOME } from '../../shared/zmeu';
 import { startAudioDemo } from './AudioDemo';
 import { FocusClock, type FocusFrame } from '../../shared/focus';
 import type { RendererOptions } from '../app/options';
@@ -233,6 +234,11 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     onBurnAbort: (cb) => burnAbort.on(() => cb()),
     burnReady: () => console.info('[prajeala:mock] burn ready'),
     burnDone: (r) => console.info('[prajeala:mock] burn done', r),
+    // Zmeul: minimal stubs (the integrator fleshes out ?zmeu=1 & co.).
+    getZmeuHome: () => Promise.resolve(ZMEU_NOT_HOME),
+    onZmeuHome: () => () => undefined,
+    onZmeuCall: () => () => undefined,
+    zmeuExited: () => undefined,
     reportReady: (report: RendererReadyReport) => console.info('[prajeala:mock] ready', report),
     reportStats: (stats: RendererStats) => console.debug('[prajeala:mock] stats', stats),
     log: (level, message) => console[level === 'debug' ? 'debug' : level === 'info' ? 'info' : level === 'warn' ? 'warn' : 'error'](`[prajeala] ${message}`),

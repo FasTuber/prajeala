@@ -22,6 +22,7 @@ import {
 import type { AudioFrame } from '../shared/audio-contract';
 import type { BurnDoneReport, BurnStart } from '../shared/burn';
 import type { Settings } from '../shared/settings';
+import type { ZmeuExitReport, ZmeuHomeFrame } from '../shared/zmeu';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_event: IpcRendererEvent, payload: T): void => {
@@ -62,6 +63,12 @@ const api: PrajealaApi = {
   },
   burnDone: (report: BurnDoneReport) => {
     ipcRenderer.send(IPC.burnDone, report);
+  },
+  getZmeuHome: () => ipcRenderer.invoke(IPC.getZmeuHome) as Promise<ZmeuHomeFrame>,
+  onZmeuHome: (cb) => subscribe<ZmeuHomeFrame>(IPC.zmeuHome, cb),
+  onZmeuCall: (cb) => subscribe<{ x: number; y: number }>(IPC.zmeuCall, cb),
+  zmeuExited: (report: ZmeuExitReport) => {
+    ipcRenderer.send(IPC.zmeuExited, { seq: report.seq });
   },
 
   reportReady: (report: RendererReadyReport) => {
