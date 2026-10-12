@@ -66,3 +66,16 @@ export function coversDisplay(window: Rect, display: Rect, tolerance = 2): boole
     window.y + window.height >= display.y + display.height - tolerance
   );
 }
+
+/**
+ * The desktop itself (wallpaper/icons window) as reported by the active-window
+ * module: it spans the whole screen when you click on it, but it is not a
+ * fullscreen app and must never trigger game mode.
+ */
+export function isDesktopShell(app: string, title: string, platform: string): boolean {
+  const a = app.trim().toLowerCase();
+  const t = title.trim();
+  if (platform === 'win32') return /^(windows )?explorer(\.exe)?$/.test(a) && (t === '' || t === 'Program Manager');
+  if (platform === 'darwin') return a === 'finder' && t === '';
+  return /^(xfdesktop|nautilus-desktop|desktop_window|pcmanfm|pcmanfm-qt|caja|nemo-desktop|ding|plasmashell)$/.test(a) || t === 'Desktop';
+}

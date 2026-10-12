@@ -129,6 +129,8 @@ export class App {
   private cold = false;
   private lastHeatAt = 0;
   private power: PowerFrame = { sleeping: false };
+  /** main hid this window (pause, game mode): its page still looks visible, so stop explicitly. */
+  private hiddenByHost = false;
   /** Main is capturing the screen for a burn: draw nothing. */
   private capturing = false;
   private captureTimer = 0;
@@ -382,6 +384,11 @@ export class App {
       api.onPower((p) => this.handlePower(p)),
       api.onAudio((f) => this.handleAudio(f)),
       api.onFocusTimer((f) => this.handleFocusTimer(f)),
+      api.onVisibility((v) => {
+        const hidden = v?.hidden === true;
+        if (hidden && !this.hiddenByHost) this.clearedWhileDisabled = false;
+        this.hiddenByHost = hidden;
+      }),
       api.onBurnPrepare(() => this.handleBurnPrepare()),
       api.onBurnStart((p) => void this.handleBurnStart(p)),
       api.onBurnAbort(() => this.handleBurnAbort()),
@@ -641,7 +648,7 @@ export class App {
   private readonly frame = (now: number): void => {
     this.rafId = 0;
     if (!this.running) return;
-    const idle = document.hidden || !this.settings.enabled || this.contextLost || !this.gpu || this.cold || this.capturing;
+    const idle = document.hidden || this.hiddenByHost || !this.settings.enabled || this.contextLost || !this.gpu || this.cold || this.capturing;
     if (idle) {
       this.idleFrame();
       this.scheduleIdle();
@@ -721,7 +728,7 @@ export class App {
   /** Disabled / hidden / cold: clear everything once, then do nothing. */
   private idleFrame(): void {
     const g = this.gpu;
-    if ((!this.settings.enabled || this.cold) && !this.clearedWhileDisabled && g && !this.contextLost) {
+    if ((!this.settings.enabled || this.cold || this.hiddenByHost) && !this.clearedWhileDisabled && g && !this.contextLost) {
       const gl = g.device.gl;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -745,7 +752,7 @@ export class App {
     this.audio.tick(dt);
     for (const e of this.emitters) {
       // Asleep (user away): only events already in flight and a running focus timer keep burning.
-      if (this.power.sleeping && e !== this.burstEmitter && e !== this.focusEmitter) continue;
+      if (this.power.sleeping && e !== this.burstEmitter && !(e === this.focusEmitter && this.focusEmitter.ticking)) continue;
       if (e === this.bottomEmitter && this.audioEmitter.wallActive) continue;
       e.update(this.ctx);
     }
@@ -762,7 +769,8 @@ export class App {
       this.lastHeatAt = now;
     }
     if (this.queue.count > 0) this.lastHeatAt = now;
-    if (this.settings.sparks || g.burn.active) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
+    // Embers left by a burn keep ageing even with sparks off, or they would keep the loop from going cold.
+    if (this.settings.sparks || g.burn.active || this.sparks.count > 0) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
     g.sim.step(dt, this.simParams, g.burn.source(now));
   }
 

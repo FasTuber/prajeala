@@ -53,6 +53,7 @@ const api: PrajealaApi = {
   onPower: (cb) => subscribe<PowerFrame>(IPC.power, cb),
   onAudio: (cb) => subscribe<AudioFrame>(IPC.audio, cb),
   onFocusTimer: (cb) => subscribe<FocusFrame>(IPC.focusTimer, cb),
+  onVisibility: (cb) => subscribe<{ hidden: boolean }>(IPC.visibility, cb),
   onBurnPrepare: (cb) => subscribe<null>(IPC.burnPrepare, () => cb()),
   onBurnStart: (cb) => subscribe<BurnStart>(IPC.burnStart, cb),
   onBurnAbort: (cb) => subscribe<null>(IPC.burnAbort, () => cb()),

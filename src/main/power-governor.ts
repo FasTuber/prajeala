@@ -23,7 +23,9 @@ const TICK_MS = 1000;
 export class PowerGovernor extends EventEmitter {
   private state: PowerState = AWAKE;
   private lastInputAt = Date.now();
-  private locked = false;
+  /** Two causes, cleared separately: waking from suspend does not unlock the screen. */
+  private screenLocked = false;
+  private suspended = false;
   private onBattery = false;
   private timer: NodeJS.Timeout | null = null;
   private readonly subscriptions: Array<[string, () => void]> = [];
@@ -46,10 +48,10 @@ export class PowerGovernor extends EventEmitter {
         log.debug(`powerMonitor.${event} unavailable:`, err);
       }
     };
-    on('lock-screen', () => this.setLocked(true, 'screen locked'));
-    on('unlock-screen', () => this.setLocked(false, 'screen unlocked'));
-    on('suspend', () => this.setLocked(true, 'suspend'));
-    on('resume', () => this.setLocked(false, 'resume'));
+    on('lock-screen', () => this.setLocked('screen', true, 'screen locked'));
+    on('unlock-screen', () => this.setLocked('screen', false, 'screen unlocked'));
+    on('suspend', () => this.setLocked('suspend', true, 'suspend'));
+    on('resume', () => this.setLocked('suspend', false, 'resume'));
     on('on-battery', () => this.setBattery(true));
     on('on-ac', () => this.setBattery(false));
     this.timer = setInterval(() => this.evaluate(), TICK_MS);
@@ -86,7 +88,7 @@ export class PowerGovernor extends EventEmitter {
       msSinceInput: Date.now() - this.lastInputAt,
       systemIdleSeconds: systemIdleSeconds(),
       onBattery: this.onBattery,
-      locked: this.locked,
+      locked: this.screenLocked || this.suspended,
     });
     if (powerStatesEqual(next, this.state)) return;
     this.state = next;
@@ -101,10 +103,11 @@ export class PowerGovernor extends EventEmitter {
     };
   }
 
-  private setLocked(locked: boolean, why: string): void {
+  private setLocked(cause: 'screen' | 'suspend', locked: boolean, why: string): void {
     log.debug(why);
-    this.locked = locked;
-    if (!locked) this.lastInputAt = Date.now();
+    if (cause === 'screen') this.screenLocked = locked;
+    else this.suspended = locked;
+    if (!this.screenLocked && !this.suspended) this.lastInputAt = Date.now();
     this.evaluate();
   }
 

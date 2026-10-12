@@ -48,6 +48,8 @@ export interface Overlay {
   loaded: boolean;
   shown: boolean;
   crashes: number;
+  /** Last visibility told to the renderer (hidden overlays must stop simulating). */
+  hostHidden: boolean | null;
 }
 
 export type PayloadFactory<T> = (info: DisplayInfo, overlay: Overlay) => T | undefined;
@@ -137,6 +139,7 @@ export class OverlayManager extends EventEmitter {
         overlay.window.hide();
         overlay.shown = false;
       }
+      if (!visible || this.suppressed.has(overlay.id)) this.tellHidden(overlay, true);
     }
   }
 
@@ -309,7 +312,7 @@ export class OverlayManager extends EventEmitter {
       },
     });
 
-    const overlay: Overlay = { id: info.id, info, window: win, loaded: false, shown: false, crashes: 0 };
+    const overlay: Overlay = { id: info.id, info, window: win, loaded: false, shown: false, crashes: 0, hostHidden: null };
     this.overlays.set(info.id, overlay);
 
     // `forward` (mouse-move passthrough to the page) only exists on Windows/macOS;
@@ -387,12 +390,25 @@ export class OverlayManager extends EventEmitter {
     if (!this.visible || this.suppressed.has(overlay.id) || overlay.window.isDestroyed()) return;
     if (!overlay.window.isVisible()) overlay.window.showInactive();
     overlay.shown = true;
+    this.tellHidden(overlay, false);
     // Re-assert z-order/bounds after the first show (Windows sometimes resets them).
     overlay.window.setAlwaysOnTop(true, 'screen-saver');
     overlay.window.setBounds(overlay.info.bounds);
   }
 
+  /**
+   * Overlays run with backgroundThrottling off, so a hidden window still looks
+   * visible to its page and would keep simulating: say so explicitly.
+   */
+  private tellHidden(overlay: Overlay, hidden: boolean): void {
+    if (!overlay.loaded || overlay.hostHidden === hidden) return;
+    overlay.hostHidden = hidden;
+    this.sendTo(overlay, IPC.visibility, { hidden });
+  }
+
   private pushInitialState(overlay: Overlay): void {
+    overlay.hostHidden = null;
+    this.tellHidden(overlay, !this.visible || this.suppressed.has(overlay.id));
     const wc = overlay.window.webContents;
     try {
       wc.send(IPC.display, overlay.info);

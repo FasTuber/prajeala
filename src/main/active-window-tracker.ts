@@ -114,6 +114,19 @@ export class ActiveWindowTracker {
     }
   }
 
+  /** One-off query, independent of polling (Arde tot on the focused window). */
+  async queryOnce(): Promise<ActiveWindowInfo | null> {
+    if (!this.mod || this.stopped) return null;
+    try {
+      const result = await this.mod.activeWindow(
+        process.platform === 'darwin' ? { accessibilityPermission: false, screenRecordingPermission: false } : undefined,
+      );
+      return result ? toInfo(result) : null;
+    } catch {
+      return null;
+    }
+  }
+
   stop(): void {
     this.stopped = true;
     this.enabled = false;

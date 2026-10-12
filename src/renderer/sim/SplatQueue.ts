@@ -5,7 +5,7 @@
  */
 
 export const MAX_SPLATS_PER_PASS = 32;
-export const SPLAT_QUEUE_CAPACITY = 320;
+export const SPLAT_QUEUE_CAPACITY = 480;
 
 export class SplatQueue {
   /** x, y, radius, radial impulse */

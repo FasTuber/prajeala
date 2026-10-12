@@ -21,7 +21,7 @@ import {
   type Rect,
   type UiState,
 } from '../shared/ipc';
-import { applyPowerProfile, coversDisplay } from '../shared/power';
+import { applyPowerProfile, coversDisplay, isDesktopShell } from '../shared/power';
 import { FREE_MAX_DISPLAYS, effectiveSettings, stripLockedChoices } from '../shared/pro';
 import { PRODUCT, externalUrl } from '../shared/product';
 import type { Settings } from '../shared/settings';
@@ -144,6 +144,8 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 async function main(): Promise<void> {
+  // Windows only shows toasts for an AppUserModelID that matches the installer's shortcut.
+  if (process.platform === 'win32') app.setAppUserModelId('ro.codulzilei.prajeala');
   log.info(`Prăjeală ${app.getVersion()} — electron ${process.versions.electron}, ${process.platform}/${process.arch}`);
   log.debug('cli', cli);
 
@@ -229,7 +231,7 @@ async function main(): Promise<void> {
     const s = store.get();
     const next = new Set<number>();
     const w = lastActiveWindow;
-    if (s.gameMode && w && !isSelfWindow(w)) {
+    if (s.gameMode && w && !isSelfWindow(w) && !isDesktopShell(w.app, w.title, process.platform)) {
       for (const d of overlays.displayBounds()) if (coversDisplay(w.bounds, d.bounds)) next.add(d.id);
     }
     const changed = next.size !== gameDisplays.size || [...next].some((id) => !gameDisplays.has(id));
@@ -279,10 +281,15 @@ async function main(): Promise<void> {
   };
 
   // ── Arde tot ─────────────────────────────────────────────────────────
+  /** Arde tot → window: the focused window queried right before the burn. */
+  let burnWindow: ActiveWindowInfo | null = null;
   const burn = new BurnController({
     overlays,
     readCursor: () => cursor.readPoint(),
-    activeWindow: () => (lastActiveWindow && !isSelfWindow(lastActiveWindow) ? lastActiveWindow : null),
+    activeWindow: () => {
+      const w = burnWindow ?? lastActiveWindow;
+      return w && !isSelfWindow(w) ? w : null;
+    },
   });
   const startBurn = async (mode: BurnMode): Promise<void> => {
     const tt = translator(lang);
@@ -298,7 +305,11 @@ async function main(): Promise<void> {
       if (res.canceled || !res.filePaths[0]) return;
       imagePath = res.filePaths[0];
     }
-    const outcome = await burn.start(mode, { imagePath });
+    // The poller may be off (fire paused, no window fire, no game mode): ask once.
+    burnWindow = mode === 'window' ? await activeWindow.queryOnce() : null;
+    const outcome = await burn.start(mode, { imagePath }).finally(() => {
+      burnWindow = null;
+    });
     if (outcome.reason === 'permission') {
       const r = await dialog.showMessageBox({
         type: 'info',
@@ -328,11 +339,16 @@ async function main(): Promise<void> {
    * comes back to it.
    */
   let audioFailed: 'system' | 'mic' | null = null;
+  /** The stored choice last seen: only a change of it (not pausing or locking) clears a failure. */
+  let audioChoice = store.get().audioSource;
   let lastLevelPush = 0;
   const syncAudio = (): void => {
     const s = store.get();
+    if (s.audioSource !== audioChoice) {
+      audioChoice = s.audioSource;
+      audioFailed = null;
+    }
     const want = s.audioSource !== 'off' && s.enabled && !governor.current.paused && !cli.smoke ? s.audioSource : null;
-    if (want !== audioFailed) audioFailed = null;
     if (want && want === audioFailed) return;
     if (want && want !== audioRunning) {
       audioRunning = want;

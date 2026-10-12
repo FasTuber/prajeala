@@ -14,9 +14,9 @@ import { flicker } from '../util/noise';
 import type { BurstEmitter } from './BurstEmitter';
 import type { Emitter, EmitterContext } from './EmitterContext';
 
-const MAX_FUSE_SOURCES = 80;
+const MAX_FUSE_SOURCES = 56;
 const MAX_TRAIL_SOURCES = 24;
-const MAX_EMBERS = 48;
+const MAX_EMBERS = 36;
 const BLAZE_COLUMNS = 24;
 
 export class FocusEmitter implements Emitter {
@@ -24,7 +24,7 @@ export class FocusEmitter implements Emitter {
   active = false;
   private frame: FocusFrame = IDLE_FOCUS;
   private receivedAt = 0;
-  private readonly text = new FireText(150);
+  private readonly text = new FireText(120);
   private sparkAccumulator = 0;
   /** Session ids whose start / end effects already played. */
   private blazedId = -1;
@@ -34,9 +34,9 @@ export class FocusEmitter implements Emitter {
 
   constructor(private readonly bursts: BurstEmitter) {}
 
-  /** True while a session is running, paused or blazing. */
-  get busy(): boolean {
-    return this.frame.phase !== 'idle';
+  /** True while time is passing (running or blazing): this keeps burning while the user is away. */
+  get ticking(): boolean {
+    return this.frame.phase === 'running' || this.frame.phase === 'blaze';
   }
 
   set(frame: FocusFrame, nowMs: number): void {

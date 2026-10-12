@@ -24,7 +24,9 @@ export class FocusService extends EventEmitter<FocusServiceEvents> {
 
   constructor(
     private readonly doneText: () => string,
-    private readonly now: () => number = () => performance.now(),
+    // Wall clock on purpose: a monotonic clock stops while the machine sleeps, so a
+    // 25-minute session would outlast a closed lid.
+    private readonly now: () => number = () => Date.now(),
   ) {
     super();
   }

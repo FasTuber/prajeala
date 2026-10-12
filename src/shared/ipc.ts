@@ -136,6 +136,8 @@ export const IPC = {
   burnAbort: 'prajeala:burn-abort',
   /** Ritmul Focului: one analysed audio frame (~60 Hz while listening). */
   audio: 'prajeala:audio',
+  /** The window was hidden (pause, game mode) or shown again: stop / resume simulating. */
+  visibility: 'prajeala:visibility',
   /** Termen limită: focus timer state (on change + every few seconds while running). */
   focusTimer: 'prajeala:focus-timer',
 
@@ -176,6 +178,7 @@ export interface PrajealaApi {
   onBurnAbort(cb: () => void): Unsubscribe;
   onAudio(cb: (frame: AudioFrame) => void): Unsubscribe;
   onFocusTimer(cb: (frame: FocusFrame) => void): Unsubscribe;
+  onVisibility(cb: (v: { hidden: boolean }) => void): Unsubscribe;
   burnReady(): void;
   burnDone(report: BurnDoneReport): void;
 

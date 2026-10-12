@@ -36,6 +36,8 @@ export class AudioEmitter implements Emitter {
   /** EQ wall is drawing the floor this frame (App skips the screen-bottom fire). */
   wallActive = false;
   private lastKickAt = -Infinity;
+  /** Own clock for rate limits: ctx.time wraps every hour, which would freeze the kick gap. */
+  private clock = 0;
   private eruption = 0;
   private eruptionBursts = 0;
   private readonly fireballs: Fireball[] = [];
@@ -66,6 +68,7 @@ export class AudioEmitter implements Emitter {
     const a = this.audio;
     const sens = s.audioSensitivity;
     const t = ctx.time;
+    this.clock += ctx.dt;
     const W = ctx.width;
     const H = ctx.height;
     const floor = ctx.floor;
@@ -90,8 +93,8 @@ export class AudioEmitter implements Emitter {
 
     // ── kick → fireball ──
     const kick = a.takeKick();
-    if (kick > 0.05 && t - this.lastKickAt >= MIN_KICK_GAP_S) {
-      this.lastKickAt = t;
+    if (kick > 0.05 && this.clock - this.lastKickAt >= MIN_KICK_GAP_S) {
+      this.lastKickAt = this.clock;
       const k = Math.min(1, kick * (0.6 + 0.8 * sens));
       const rng = ctx.sparks.random;
       const x = W * (0.12 + 0.76 * rng.next());

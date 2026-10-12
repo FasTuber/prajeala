@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AWAKE, applyPowerProfile, coversDisplay, powerState, powerStatesEqual } from '../src/shared/power';
+import { AWAKE, applyPowerProfile, coversDisplay, isDesktopShell, powerState, powerStatesEqual } from '../src/shared/power';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../src/shared/settings';
 
 const input = (patch: Partial<Parameters<typeof powerState>[1]> = {}) => ({
@@ -49,6 +49,19 @@ describe('applyPowerProfile', () => {
     expect(e.simScale).toBeCloseTo(0.28, 6);
     expect(e.pressureIterations).toBe(8);
     expect(applyPowerProfile(normalizeSettings({ maxFps: 15, simScale: 0.1 }), { ...AWAKE, eco: true })).toMatchObject({ maxFps: 15, simScale: 0.1 });
+  });
+});
+
+describe('isDesktopShell', () => {
+  it('recognises the desktop window on each platform and nothing else', () => {
+    expect(isDesktopShell('Windows Explorer', '', 'win32')).toBe(true);
+    expect(isDesktopShell('explorer.exe', 'Program Manager', 'win32')).toBe(true);
+    expect(isDesktopShell('Windows Explorer', 'Documents', 'win32')).toBe(false); // a folder window
+    expect(isDesktopShell('Steam', '', 'win32')).toBe(false);
+    expect(isDesktopShell('Finder', '', 'darwin')).toBe(true);
+    expect(isDesktopShell('Finder', 'Downloads', 'darwin')).toBe(false);
+    expect(isDesktopShell('xfdesktop', 'Desktop', 'linux')).toBe(true);
+    expect(isDesktopShell('Firefox', 'YouTube', 'linux')).toBe(false);
   });
 });
 

@@ -227,6 +227,7 @@ export function createMockApi(options: RendererOptions): PrajealaApi {
     onPower: () => () => undefined,
     onAudio: (cb) => audioSignal.on(cb),
     onFocusTimer: (cb) => focusSignal.on(cb),
+    onVisibility: () => () => undefined,
     onBurnPrepare: (cb) => burnPrepare.on(() => cb()),
     onBurnStart: (cb) => burnStart.on(cb),
     onBurnAbort: (cb) => burnAbort.on(() => cb()),
