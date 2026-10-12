@@ -77,6 +77,22 @@ describe('normalizeSettings', () => {
       pressureIterations: 20,
       launchAtLogin: true,
       showDebugHud: true,
+      customColors: ['#112233', '#445566', '#778899'],
+      typingFire: false,
+      idleSleep: false,
+      idleSleepSeconds: 300,
+      batteryMode: 'normal',
+      gameMode: false,
+      fireOverTaskbar: true,
+      audioSource: 'mic',
+      audioStyle: 'eq',
+      audioDrops: false,
+      audioSensitivity: 0.75,
+      focusMinutes: 50,
+      torch: true,
+      zmeu: true,
+      zmeuTemper: 'wild',
+      zmeuSize: 'large',
     };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
@@ -321,5 +337,16 @@ describe('INTENSITY_PRESETS', () => {
 
   it('is frozen', () => {
     expect(Object.isFrozen(INTENSITY_PRESETS)).toBe(true);
+  });
+});
+
+describe('power settings', () => {
+  it('validates the governor fields', () => {
+    const s = normalizeSettings({ idleSleep: 'yes', idleSleepSeconds: 5, batteryMode: 'turbo', gameMode: false, fireOverTaskbar: true });
+    expect(s.idleSleep).toBe(DEFAULT_SETTINGS.idleSleep);
+    expect(s.idleSleepSeconds).toBe(SETTINGS_LIMITS.idleSleepSeconds.min);
+    expect(s.batteryMode).toBe('eco');
+    expect(s.gameMode).toBe(false);
+    expect(s.fireOverTaskbar).toBe(true);
   });
 });

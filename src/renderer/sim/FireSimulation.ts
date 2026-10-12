@@ -21,6 +21,7 @@ import divergenceFrag from './shaders/divergence.frag';
 import pressureFrag from './shaders/pressure.frag';
 import gradientFrag from './shaders/gradient.frag';
 import advectFrag from './shaders/advect.frag';
+import burnSourceFrag from '../burn/shaders/burnSource.frag';
 
 export interface SimParams {
   /** Per-second retention of heat (0..1). */
@@ -63,6 +64,8 @@ export class FireSimulation {
   private readonly gradientProgram: Program;
   private readonly advectVelocity: Program;
   private readonly advectTemperature: Program;
+  private readonly burnVelocity: Program;
+  private readonly burnTemperature: Program;
 
   private time = 0;
 
@@ -95,6 +98,8 @@ export class FireSimulation {
     this.gradientProgram = new Program(gl, quadVert, [commonGlsl, gradientFrag], defs);
     this.advectVelocity = new Program(gl, quadVert, [commonGlsl, noiseGlsl, advectFrag], [...defs, 'ADVECT_VELOCITY']);
     this.advectTemperature = new Program(gl, quadVert, [commonGlsl, noiseGlsl, advectFrag], defs);
+    this.burnVelocity = new Program(gl, quadVert, [commonGlsl, burnSourceFrag], [...defs, 'BURN_VELOCITY']);
+    this.burnTemperature = new Program(gl, quadVert, [commonGlsl, burnSourceFrag], defs);
     this.clear();
   }
 
@@ -157,7 +162,11 @@ export class FireSimulation {
   }
 
   /** Advances the simulation by `dt` seconds (already clamped by the caller). */
-  step(dt: number, params: SimParams): void {
+  /**
+   * Advances the simulation by `dt` seconds (already clamped by the caller).
+   * `burn` (optional) is the Arde tot burn map: its front becomes a heat source.
+   */
+  step(dt: number, params: SimParams, burn?: { texture: WebGLTexture; strength: number } | null): void {
     const gl = this.device.gl;
     const w = this.width;
     const h = this.height;
@@ -168,7 +177,8 @@ export class FireSimulation {
     gl.disable(gl.BLEND);
 
     // 1. Splats.
-    this.applySplats(texelX, texelY, aspect);
+    this.applySplats(texelX, texelY, aspect, dt);
+    if (burn && burn.strength > 0) this.applyBurn(burn.texture, burn.strength, dt);
 
     // 2. Curl.
     this.curlProgram.use();
@@ -250,7 +260,23 @@ export class FireSimulation {
     this.temperature.swap();
   }
 
-  private applySplats(texelX: number, texelY: number, aspect: number): void {
+  private applyBurn(map: WebGLTexture, strength: number, dt: number): void {
+    for (const [program, field, lift] of [
+      [this.burnVelocity, this.velocity, 2.4],
+      [this.burnTemperature, this.temperature, 0],
+    ] as const) {
+      program.use();
+      program.uniform1f('uStrength', strength);
+      program.uniform1f('uDt', dt);
+      program.uniform1f('uLift', lift);
+      program.texture('uTarget', field.texture, 0);
+      program.texture('uBurn', map, 1);
+      this.device.blit(field.write);
+      field.swap();
+    }
+  }
+
+  private applySplats(texelX: number, texelY: number, aspect: number, dt: number): void {
     const q = this.queue;
     if (q.count === 0) return;
     for (let offset = 0; offset < q.count; offset += MAX_SPLATS_PER_PASS) {
@@ -274,7 +300,9 @@ export class FireSimulation {
       this.splatTemperature.uniform1i('uCount', n);
       this.splatTemperature.uniform4fv('uSplatA', q.a, start, len);
       this.splatTemperature.uniform4fv('uSplatB', q.b, start, len);
+      this.splatTemperature.uniform1f('uDt', dt);
       this.splatTemperature.texture('uTarget', this.temperature.texture, 0);
+      this.splatTemperature.texture('uVelocity', this.velocity.texture, 1);
       this.device.blit(this.temperature.write);
       this.temperature.swap();
     }
@@ -297,6 +325,8 @@ export class FireSimulation {
       this.gradientProgram,
       this.advectVelocity,
       this.advectTemperature,
+      this.burnVelocity,
+      this.burnTemperature,
     ]) {
       p.dispose();
     }

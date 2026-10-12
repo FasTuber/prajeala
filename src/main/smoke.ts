@@ -1,8 +1,9 @@
 /**
  * `--smoke` mode for CI: wait for every overlay's RendererReadyReport, then for
  * `frames >= smokeFrames` in the stats of every overlay, print exactly one
- * `PRAJEALA_SMOKE_RESULT {...}` line to stdout and exit 0. Any failed ready
- * report, timeout or uncaught error prints a `{"ok":false,…}` line and exits 1.
+ * `PRAJEALA_SMOKE_RESULT {...}` line to stdout and exit 0. With `expectUi` the
+ * settings page must report that it booted as well. Any failed ready report,
+ * timeout or uncaught error prints a `{"ok":false,…}` line and exits 1.
  */
 import type { RendererReadyReport, RendererStats } from '../shared/ipc';
 import { createLogger } from './log';
@@ -17,6 +18,10 @@ export interface SmokeOptions {
   timeoutMs: number;
   /** Fire a test burst at the centre of every overlay this often. */
   burstIntervalMs?: number;
+  /** Also wait for the settings window to report `ready`. */
+  expectUi?: boolean;
+  /** Also wait for an Arde tot burn to complete. */
+  expectBurn?: boolean;
 }
 
 export interface SmokeHooks {
@@ -38,6 +43,8 @@ export class SmokeRunner {
   private timeoutTimer: NodeJS.Timeout | null = null;
   private burstTimer: NodeJS.Timeout | null = null;
   private finished = false;
+  private ui: { ok: boolean; error?: string } | null = null;
+  private burn: { ok: boolean; reason?: string; error?: string } | null = null;
 
   constructor(
     private readonly options: SmokeOptions,
@@ -62,6 +69,30 @@ export class SmokeRunner {
         if (!this.finished && this.overlays.count === 0) this.fail('no overlay windows created');
       }, 2000);
     }
+  }
+
+  /** Report from the settings page (see SettingsWindow.onReady). */
+  uiReady(report: { ok: boolean; error?: string }): void {
+    if (this.finished) return;
+    this.ui = report;
+    log.info(`settings window ready ok=${report.ok}${report.error ? ` error="${report.error}"` : ''}`);
+    if (!report.ok) {
+      this.fail(`settings window failed: ${report.error ?? 'unknown error'}`);
+      return;
+    }
+    this.check();
+  }
+
+  /** Outcome of the smoke burn (see index.ts). */
+  burnResult(outcome: { ok: boolean; reason?: string; error?: string }): void {
+    if (this.finished) return;
+    this.burn = { ok: outcome.ok, ...(outcome.reason ? { reason: outcome.reason } : {}), ...(outcome.error ? { error: outcome.error } : {}) };
+    log.info(`burn finished ok=${outcome.ok}${outcome.reason ? ` reason=${outcome.reason}` : ''}`);
+    if (!outcome.ok) {
+      this.fail(`burn failed: ${outcome.reason ?? 'unknown'}${outcome.error ? ` (${outcome.error})` : ''}`);
+      return;
+    }
+    this.check();
   }
 
   /** Called by main on any fatal condition (e.g. uncaught error). */
@@ -119,11 +150,16 @@ export class SmokeRunner {
     if (this.finished) return;
     const overlays = this.overlays.list();
     if (overlays.length === 0) return;
+    if (this.options.expectUi && !this.ui?.ok) return;
+    if (this.options.expectBurn && !this.burn?.ok) return;
     for (const overlay of overlays) {
       const rec = this.records.get(overlay.id);
       if (!rec?.ready?.ok) return;
       if (!rec.stats || rec.stats.frames < this.options.frames) return;
     }
+    // TODO(zmeu, integrator): index.ts forces `zmeu: true` in smoke runs. Once the renderer
+    // reports `stats.zmeu`, fail when any overlay reports 2 (shader compile error) and when
+    // none reports 1 by the frame target (spec §7, src/main/smoke.ts).
     this.finish(true, {});
   }
 
@@ -144,6 +180,8 @@ export class SmokeRunner {
       ok,
       ...extra,
       displays: this.overlays.count,
+      ...(this.options.expectUi ? { settingsWindow: this.ui ?? { ok: false } } : {}),
+      ...(this.options.expectBurn ? { burn: this.burn ?? { ok: false } } : {}),
       framesRequired: this.options.frames,
       reports: records.map((r) => ({ display: r.display, displayId: r.displayId, ...(r.ready ?? { ok: false }) })),
       stats: records.map((r) => ({ display: r.display, displayId: r.displayId, ...(r.stats ?? {}) })),

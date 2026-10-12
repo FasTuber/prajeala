@@ -4,7 +4,7 @@
  * it can be unit-tested with Vitest.
  */
 
-export const PALETTES = ['classic', 'blue', 'green', 'plasma', 'ember'] as const;
+export const PALETTES = ['classic', 'ember', 'blue', 'green', 'plasma', 'aurora', 'gold', 'ghost', 'custom'] as const;
 export type Palette = (typeof PALETTES)[number];
 
 export const INTENSITIES = ['low', 'medium', 'high', 'inferno'] as const;
@@ -12,6 +12,23 @@ export type Intensity = (typeof INTENSITIES)[number];
 
 export const CURSOR_MODES = ['off', 'halo', 'trail', 'comet'] as const;
 export type CursorMode = (typeof CURSOR_MODES)[number];
+
+/** Where Ritmul Focului (audio-reactive fire) listens. */
+export const AUDIO_SOURCES = ['off', 'system', 'mic'] as const;
+export type AudioSource = (typeof AUDIO_SOURCES)[number];
+
+/** How the fire reacts to sound: pulses + fireballs (free) or an equaliser wall of fire (Pro). */
+export const AUDIO_STYLES = ['pulse', 'eq'] as const;
+export type AudioStyle = (typeof AUDIO_STYLES)[number];
+
+/** What to do on battery power: keep going, a lighter profile, or stop drawing. */
+export const BATTERY_MODES = ['normal', 'eco', 'pause'] as const;
+export type BatteryMode = (typeof BATTERY_MODES)[number];
+/** Zmeul: how mischievous the desktop dragon is, and how big. */
+export const ZMEU_TEMPERS = ['calm', 'playful', 'wild'] as const;
+export type ZmeuTemper = (typeof ZMEU_TEMPERS)[number];
+export const ZMEU_SIZES = ['small', 'medium', 'large'] as const;
+export type ZmeuSize = (typeof ZMEU_SIZES)[number];
 
 export interface Settings {
   /** Master switch. When false the overlays stay alive but render nothing. */
@@ -37,6 +54,33 @@ export interface Settings {
   launchAtLogin: boolean;
   /** Small on-screen diagnostics panel (fps, sim size, emitters). */
   showDebugHud: boolean;
+  /** Colours of the `custom` palette, cool → hot, as #rrggbb. */
+  customColors: [string, string, string];
+  /** Small flares on the active window while typing (requires uiohook-napi). */
+  typingFire: boolean;
+  /** Let the fire die down to nothing after `idleSleepSeconds` without any input (it relights on input). */
+  idleSleep: boolean;
+  idleSleepSeconds: number;
+  batteryMode: BatteryMode;
+  /** Hide the overlay of a display while a fullscreen app (game, video) covers it. */
+  gameMode: boolean;
+  /** Draw the screen-bottom fire over the taskbar/Dock instead of on top of it. */
+  fireOverTaskbar: boolean;
+  /** Ritmul Focului: audio source (off by default — nothing listens unless asked). */
+  audioSource: AudioSource;
+  audioStyle: AudioStyle;
+  /** Big eruptions on music drops (rate-limited). */
+  audioDrops: boolean;
+  /** 0..1 — how strongly the fire follows the sound. */
+  audioSensitivity: number;
+  /** Termen limită: length of a focus session in minutes. */
+  focusMinutes: number;
+  /** Mod Torță: the screen goes dark and the cursor is a torch; fires light their surroundings. */
+  torch: boolean;
+  /** Zmeul (Pro): a fire dragon that lives on the desktop. */
+  zmeu: boolean;
+  zmeuTemper: ZmeuTemper;
+  zmeuSize: ZmeuSize;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
@@ -53,12 +97,31 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   pressureIterations: 12,
   launchAtLogin: false,
   showDebugHud: false,
+  customColors: Object.freeze(['#b4102a', '#ff6a00', '#ffe066']) as unknown as [string, string, string],
+  typingFire: true,
+  idleSleep: true,
+  idleSleepSeconds: 120,
+  batteryMode: 'eco',
+  gameMode: true,
+  fireOverTaskbar: false,
+  audioSource: 'off',
+  audioStyle: 'pulse',
+  audioDrops: true,
+  audioSensitivity: 0.5,
+  focusMinutes: 25,
+  torch: false,
+  zmeu: false,
+  zmeuTemper: 'playful',
+  zmeuSize: 'medium',
 });
 
 export const SETTINGS_LIMITS = Object.freeze({
   simScale: { min: 0.1, max: 1 },
   maxFps: { min: 15, max: 240 },
   pressureIterations: { min: 0, max: 64 },
+  idleSleepSeconds: { min: 20, max: 1800 },
+  audioSensitivity: { min: 0, max: 1 },
+  focusMinutes: { min: 1, max: 180 },
 });
 
 /** Tunables that each intensity preset feeds into the simulation. */
@@ -149,6 +212,17 @@ function pickNumber(value: unknown, fallback: number, min: number, max: number):
   return Number.isFinite(n) ? clamp(n, min, max) : fallback;
 }
 
+const HEX_RE = /^#[0-9a-f]{6}$/i;
+
+function pickColors(value: unknown, fallback: readonly string[]): [string, string, string] {
+  const src = Array.isArray(value) ? value : [];
+  const out = [0, 1, 2].map((i) => {
+    const v = src[i];
+    return typeof v === 'string' && HEX_RE.test(v) ? v.toLowerCase() : (fallback[i] ?? '#ffffff');
+  });
+  return [out[0]!, out[1]!, out[2]!];
+}
+
 function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
@@ -178,6 +252,22 @@ export function normalizeSettings(input: unknown): Settings {
     ),
     launchAtLogin: pickBool(src.launchAtLogin, d.launchAtLogin),
     showDebugHud: pickBool(src.showDebugHud, d.showDebugHud),
+    customColors: pickColors(src.customColors, d.customColors),
+    typingFire: pickBool(src.typingFire, d.typingFire),
+    idleSleep: pickBool(src.idleSleep, d.idleSleep),
+    idleSleepSeconds: Math.round(pickNumber(src.idleSleepSeconds, d.idleSleepSeconds, L.idleSleepSeconds.min, L.idleSleepSeconds.max)),
+    batteryMode: pickEnum(src.batteryMode, BATTERY_MODES, d.batteryMode),
+    gameMode: pickBool(src.gameMode, d.gameMode),
+    fireOverTaskbar: pickBool(src.fireOverTaskbar, d.fireOverTaskbar),
+    audioSource: pickEnum(src.audioSource, AUDIO_SOURCES, d.audioSource),
+    audioStyle: pickEnum(src.audioStyle, AUDIO_STYLES, d.audioStyle),
+    audioDrops: pickBool(src.audioDrops, d.audioDrops),
+    audioSensitivity: pickNumber(src.audioSensitivity, d.audioSensitivity, L.audioSensitivity.min, L.audioSensitivity.max),
+    focusMinutes: Math.round(pickNumber(src.focusMinutes, d.focusMinutes, L.focusMinutes.min, L.focusMinutes.max)),
+    torch: pickBool(src.torch, d.torch),
+    zmeu: pickBool(src.zmeu, d.zmeu),
+    zmeuTemper: pickEnum(src.zmeuTemper, ZMEU_TEMPERS, d.zmeuTemper),
+    zmeuSize: pickEnum(src.zmeuSize, ZMEU_SIZES, d.zmeuSize),
   };
 }
 

@@ -86,7 +86,102 @@ export const PALETTE_DEFINITIONS: Readonly<Record<Palette, PaletteDefinition>> =
     ],
     spark: [1.0, 0.55, 0.2],
   },
+  aurora: {
+    name: 'aurora',
+    label: 'Aurora',
+    stops: [
+      [0.0, 0.0, 0.0, 0.0],
+      [0.15, 0.12, 0.0, 0.25],
+      [0.35, 0.25, 0.1, 0.6],
+      [0.55, 0.1, 0.65, 0.6],
+      [0.75, 0.35, 0.95, 0.6],
+      [0.9, 0.75, 1.0, 0.85],
+      [1.0, 1.0, 1.0, 1.0],
+    ],
+    spark: [0.55, 1.0, 0.75],
+  },
+  gold: {
+    name: 'gold',
+    label: 'Molten gold',
+    stops: [
+      [0.0, 0.0, 0.0, 0.0],
+      [0.15, 0.2, 0.1, 0.0],
+      [0.35, 0.6, 0.35, 0.02],
+      [0.55, 0.9, 0.65, 0.1],
+      [0.75, 1.0, 0.85, 0.35],
+      [0.9, 1.0, 0.95, 0.7],
+      [1.0, 1.0, 1.0, 0.95],
+    ],
+    spark: [1.0, 0.88, 0.45],
+  },
+  ghost: {
+    name: 'ghost',
+    label: 'Ghost fire',
+    stops: [
+      [0.0, 0.0, 0.0, 0.0],
+      [0.15, 0.08, 0.1, 0.14],
+      [0.35, 0.3, 0.4, 0.5],
+      [0.55, 0.6, 0.72, 0.8],
+      [0.75, 0.82, 0.9, 0.97],
+      [0.9, 0.94, 0.97, 1.0],
+      [1.0, 1.0, 1.0, 1.0],
+    ],
+    spark: [0.85, 0.95, 1.0],
+  },
+  custom: {
+    name: 'custom',
+    label: 'Your colours',
+    // Default look; the renderer rebuilds it from Settings.customColors (customPalette()).
+    stops: [
+      [0.0, 0.0, 0.0, 0.0],
+      [0.2, 0.25, 0.02, 0.05],
+      [0.45, 0.71, 0.06, 0.16],
+      [0.7, 1.0, 0.42, 0.0],
+      [0.9, 1.0, 0.88, 0.4],
+      [1.0, 1.0, 1.0, 0.85],
+    ],
+    spark: [1.0, 0.7, 0.3],
+  },
 });
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.replace('#', ''), 16);
+  if (!Number.isFinite(n) || hex.replace('#', '').length !== 6) return [1, 1, 1];
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+/** Builds the `custom` palette from three colours (cool → hot): black → c0 → c1 → c2 → near white. */
+export function customPalette(colors: readonly string[]): PaletteDefinition {
+  const [a, b, c] = [0, 1, 2].map((i) => hexToRgb(colors[i] ?? '#ffffff')) as [
+    [number, number, number],
+    [number, number, number],
+    [number, number, number],
+  ];
+  const mix = (x: [number, number, number], k: number): [number, number, number] => [
+    x[0] + (1 - x[0]) * k,
+    x[1] + (1 - x[1]) * k,
+    x[2] + (1 - x[2]) * k,
+  ];
+  const hot = mix(c, 0.6);
+  return {
+    name: 'custom',
+    label: PALETTE_DEFINITIONS.custom.label,
+    stops: [
+      [0.0, 0, 0, 0],
+      [0.2, a[0] * 0.35, a[1] * 0.35, a[2] * 0.35],
+      [0.45, ...a],
+      [0.7, ...b],
+      [0.9, ...c],
+      [1.0, ...hot],
+    ],
+    spark: mix(b, 0.3),
+  };
+}
+
+/** Palette definition to render with, honouring the custom colours. */
+export function resolvePalette(name: Palette, customColors: readonly string[]): PaletteDefinition {
+  return name === 'custom' ? customPalette(customColors) : PALETTE_DEFINITIONS[name];
+}
 
 /** Linear interpolation of a palette at temperature t ∈ [0,1]. Returns [r,g,b] in 0..1. */
 export function samplePalette(def: PaletteDefinition, t: number): [number, number, number] {

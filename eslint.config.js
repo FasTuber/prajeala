@@ -168,6 +168,40 @@ export default defineConfig([
     languageOptions: { globals: browserGlobals },
   },
   {
+    // Zmeul's core is pure and deterministic: seeded Random, its own clock, no DOM and no GL.
+    files: ['src/renderer/zmeu/core/**'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'window', message: 'zmeu/core is pure: App passes everything in through ZmeuSenses.' },
+        { name: 'document', message: 'zmeu/core is pure: App passes everything in through ZmeuSenses.' },
+        { name: 'performance', message: 'zmeu/core keeps its own clock; App passes wallMs to step().' },
+        { name: 'requestAnimationFrame', message: 'zmeu/core is stepped by App.' },
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'Math', property: 'random', message: 'Use the seeded Random from util/math.' },
+        { object: 'Date', property: 'now', message: 'zmeu/core keeps its own clock.' },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/gl', '**/gl/**', '**/render', '**/render/**', '*.glsl', '*.vert', '*.frag', '**/*.glsl', '**/*.vert', '**/*.frag'],
+              message: 'zmeu/core may only import util/math, util/noise and src/shared.',
+            },
+            {
+              // Allow-list: siblings, util/math, util/noise and src/shared; nothing else (no packages, no app code).
+              regex: '^(?!\\./[^/]+$|\\.\\./\\.\\./util/(?:math|noise)$|\\.\\./\\.\\./\\.\\./shared/[^/]+$)',
+              message: 'zmeu/core may only import util/math, util/noise and src/shared.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['src/shared/**', 'src/types/**', 'tests/**'],
     languageOptions: { globals: { ...nodeGlobals, ...browserGlobals } },
   },

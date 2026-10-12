@@ -3,8 +3,11 @@
  * wires input → emitters → simulation → render passes. Never throws out of
  * init(); failures are reported through `reportReady({ ok: false })`.
  */
+import type { AudioFrame } from '../../shared/audio-contract';
+import { sanitizeFocusFrame, type FocusFrame } from '../../shared/focus';
 import type {
   ActiveWindowEvent,
+  PowerFrame,
   CursorEvent,
   DisplayInfo,
   HostCapabilities,
@@ -13,7 +16,7 @@ import type {
   RendererReadyReport,
   Unsubscribe,
 } from '../../shared/ipc';
-import { PALETTE_DEFINITIONS } from '../../shared/palettes';
+import { resolvePalette } from '../../shared/palettes';
 import {
   DEFAULT_SETTINGS,
   INTENSITY_PRESETS,
@@ -21,7 +24,12 @@ import {
   type IntensityPreset,
   type Settings,
 } from '../../shared/settings';
+import type { BurnStart } from '../../shared/burn';
+import { BurnLayer } from '../burn/BurnLayer';
 import { FireCursor } from '../cursor/FireCursor';
+import { AudioState } from '../audio/AudioState';
+import { AudioEmitter } from '../emitters/AudioEmitter';
+import { FocusEmitter } from '../emitters/FocusEmitter';
 import { BurstEmitter } from '../emitters/BurstEmitter';
 import { CursorEmitter } from '../emitters/CursorEmitter';
 import { EmitterContext, type Emitter } from '../emitters/EmitterContext';
@@ -45,6 +53,7 @@ interface GpuScene {
   renderer: FireRenderer;
   fireCursor: FireCursor;
   sparkRenderer: SparkRenderer;
+  burn: BurnLayer;
 }
 
 export interface AppEnvironment {
@@ -53,6 +62,11 @@ export interface AppEnvironment {
 }
 
 const MAX_DT = 1 / 30;
+/** Without new heat or sparks for this long the field is invisible: stop rendering until something happens. */
+const COLD_AFTER_MS = 3000;
+/** Mod Torță: how dark the desktop gets, and the torch radius (screen heights). */
+const TORCH_DARKNESS = 0.9;
+const TORCH_RADIUS = 0.24;
 const IDLE_INTERVAL_MS = 250;
 const HUD_INTERVAL_MS = 250;
 
@@ -70,6 +84,10 @@ export class App {
   private readonly ctx: EmitterContext;
   private readonly cursorEmitter: CursorEmitter;
   private readonly burstEmitter: BurstEmitter;
+  private readonly audio = new AudioState();
+  private readonly audioEmitter: AudioEmitter;
+  private readonly focusEmitter: FocusEmitter;
+  private baseBuoyancy = 0.6;
   private readonly windowEmitter = new WindowFrameEmitter();
   private readonly bottomEmitter = new ScreenBottomEmitter();
   private readonly emitters: Emitter[];
@@ -107,6 +125,15 @@ export class App {
   private contextLost = false;
   private readyReported = false;
   private clearedWhileDisabled = false;
+  /** Nothing burns on this display: the frame loop idles until an event wakes it. */
+  private cold = false;
+  private lastHeatAt = 0;
+  private power: PowerFrame = { sleeping: false };
+  /** main hid this window (pause, game mode): its page still looks visible, so stop explicitly. */
+  private hiddenByHost = false;
+  /** Main is capturing the screen for a burn: draw nothing. */
+  private capturing = false;
+  private captureTimer = 0;
   private warmupPending = 0;
   private dprQuery: MediaQueryList | null = null;
   private readonly unsubscribers: Unsubscribe[] = [];
@@ -120,7 +147,10 @@ export class App {
     this.ctx = new EmitterContext(this.queue, this.sparks);
     this.cursorEmitter = new CursorEmitter(this.cursor, this.ctx);
     this.burstEmitter = new BurstEmitter(this.ctx);
-    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.bottomEmitter];
+    this.audioEmitter = new AudioEmitter(this.audio, this.burstEmitter);
+    this.focusEmitter = new FocusEmitter(this.burstEmitter);
+    // Audio runs before the bottom fire: its EQ wall replaces it while active.
+    this.emitters = [this.cursorEmitter, this.burstEmitter, this.windowEmitter, this.focusEmitter, this.audioEmitter, this.bottomEmitter];
     this.warmupPending = options.warmup;
     this.look.view = options.view;
   }
@@ -194,10 +224,12 @@ export class App {
     try {
       sim = new FireSimulation(device, w, h, this.queue);
       renderer = new FireRenderer(device, sim.width, sim.height);
-      renderer.setPalette(PALETTE_DEFINITIONS[this.settings.palette]);
+      renderer.setPalette(resolvePalette(this.settings.palette, this.settings.customColors));
       fireCursor = new FireCursor(device);
       const sparkRenderer = new SparkRenderer(device, this.sparks.capacity);
-      this.gpu = { device, sim, renderer, fireCursor, sparkRenderer };
+      const burn = new BurnLayer(device);
+      burn.onDone = (aborted) => this.onBurnDone(aborted);
+      this.gpu = { device, sim, renderer, fireCursor, sparkRenderer, burn };
     } catch (err) {
       fireCursor?.dispose();
       renderer?.dispose();
@@ -215,6 +247,7 @@ export class App {
     this.gpu = null;
     if (!g) return;
     try {
+      g.burn.dispose();
       g.sparkRenderer.dispose();
       g.fireCursor.dispose();
       g.renderer.dispose();
@@ -259,8 +292,17 @@ export class App {
     this.dpr = dpr;
     this.ctx.width = w;
     this.ctx.height = h;
+    this.ctx.floor = this.floorY(h);
     this.updateSimSize();
     this.watchDpr();
+  }
+
+  /** Local y the bottom fire stands on: the top of the taskbar/Dock unless the user wants it over the taskbar. */
+  private floorY(cssHeight: number): number {
+    const d = this.display;
+    if (!d || this.settings.fireOverTaskbar) return cssHeight;
+    const workBottom = d.workArea.y + d.workArea.height - d.bounds.y;
+    return workBottom > cssHeight * 0.5 && workBottom < cssHeight ? workBottom : cssHeight;
   }
 
   private updateSimSize(): void {
@@ -297,11 +339,14 @@ export class App {
     this.sparks.budget = this.preset.sparkBudget;
     this.refreshSimParams();
     this.hud.setVisible(next.showDebugHud || this.options.hud);
-    if (this.gpu && next.palette !== prev.palette) {
-      this.gpu.renderer.setPalette(PALETTE_DEFINITIONS[next.palette]);
+    if (this.gpu && (next.palette !== prev.palette || next.customColors.join() !== prev.customColors.join())) {
+      this.gpu.renderer.setPalette(resolvePalette(next.palette, next.customColors));
     }
     if (next.simScale !== prev.simScale) this.updateSimSize();
+    if (next.fireOverTaskbar !== prev.fireOverTaskbar) this.ctx.floor = this.floorY(this.cssHeight);
+    this.wake();
     if (!next.sparks) this.sparks.clear();
+    if (next.audioSource === 'off' && prev.audioSource !== 'off') this.audio.reset();
     if (next.enabled && !prev.enabled) {
       this.clearedWhileDisabled = false;
       this.lastTickAt = 0;
@@ -319,6 +364,7 @@ export class App {
     s.velocityDissipation = Math.pow(p.velocityDissipation, 8);
     s.cooling = (1 - p.heatDissipation) * 35;
     s.buoyancy = p.buoyancy * 1.1;
+    this.baseBuoyancy = s.buoyancy;
     s.curl = p.curl * 2;
     s.maxSpeed = 1.0 + p.buoyancy * 0.35;
     s.pressureIterations = this.settings.pressureIterations;
@@ -334,27 +380,181 @@ export class App {
       api.onDisplay((d) => this.handleDisplay(d)),
       api.onCapabilities((c) => this.handleCapabilities(c)),
       api.onTestBurst((p) => this.handleTestBurst(p)),
+      api.onKeyPress(() => this.handleKeyPress()),
+      api.onPower((p) => this.handlePower(p)),
+      api.onAudio((f) => this.handleAudio(f)),
+      api.onFocusTimer((f) => this.handleFocusTimer(f)),
+      api.onVisibility((v) => {
+        const hidden = v?.hidden === true;
+        if (hidden && !this.hiddenByHost) this.clearedWhileDisabled = false;
+        this.hiddenByHost = hidden;
+      }),
+      api.onBurnPrepare(() => this.handleBurnPrepare()),
+      api.onBurnStart((p) => void this.handleBurnStart(p)),
+      api.onBurnAbort(() => this.handleBurnAbort()),
     );
   }
 
   private handleCursor(e: CursorEvent): void {
     this.cursor.push(e);
+    if (this.power.sleeping) return;
+    if (e.inside && (this.settings.cursorMode !== 'off' || this.settings.torch)) this.wake();
     if (this.settings.enabled && this.gpu && !this.contextLost) this.cursorEmitter.onMove(e);
+  }
+
+  private handlePower(p: PowerFrame): void {
+    const wasSleeping = this.power.sleeping;
+    this.power = { sleeping: p.sleeping === true };
+    if (wasSleeping && !this.power.sleeping) this.wake();
+  }
+
+  private handleAudio(frame: AudioFrame): void {
+    if (this.settings.audioSource === 'off') return;
+    this.audio.push(frame);
+    if (!frame.silent && (frame.kick > 0 || frame.loud > 0.08)) this.wake();
+  }
+
+  private handleFocusTimer(frame: FocusFrame): void {
+    const f = sanitizeFocusFrame(frame);
+    this.focusEmitter.set(f, performance.now());
+    if (f.phase !== 'idle' || f.cancelled) this.wake();
+  }
+
+  // ───────────────────────────── Arde tot ─────────────────────────────
+
+  /** Main is about to capture the screen: show nothing for a couple of frames, then say so. */
+  private handleBurnPrepare(): void {
+    this.capturing = true;
+    this.clearCanvas();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      this.clearCanvas();
+      this.api.burnReady();
+    }));
+    window.clearTimeout(this.captureTimer);
+    this.captureTimer = window.setTimeout(() => {
+      this.capturing = false;
+    }, 2000);
+  }
+
+  private async handleBurnStart(p: BurnStart): Promise<void> {
+    window.clearTimeout(this.captureTimer);
+    this.capturing = false;
+    const g = this.gpu;
+    if (!g || this.contextLost) {
+      this.api.burnDone({ ok: false, aborted: false, error: 'no GPU' });
+      return;
+    }
+    try {
+      const bitmap = await createImageBitmap(new Blob([p.image as BlobPart], { type: p.mime }));
+      if (this.gpu !== g) {
+        bitmap.close();
+        this.api.burnDone({ ok: false, aborted: false, error: 'GPU reset' });
+        return;
+      }
+      g.burn.start(p, bitmap, this.canvas.width, this.canvas.height, this.cssWidth, this.cssHeight);
+      bitmap.close();
+      this.setInteractive(true);
+      this.log('info', `burning (${p.mode})`);
+      this.wake();
+      this.scheduleRaf();
+    } catch (err) {
+      this.log('error', `could not start the burn: ${describe(err)}`);
+      this.api.burnDone({ ok: false, aborted: false, error: describe(err) });
+    }
+  }
+
+  private handleBurnAbort(): void {
+    window.clearTimeout(this.captureTimer);
+    this.capturing = false;
+    this.gpu?.burn.abort();
+  }
+
+  private onBurnDone(aborted: boolean): void {
+    this.setInteractive(false);
+    this.api.burnDone({ ok: true, aborted });
+  }
+
+  /** During a burn the page takes clicks (new fires) and Esc (stop) itself. */
+  private setInteractive(on: boolean): void {
+    if (this.env.mock) return; // the mock page is always interactive
+    const value = on ? 'auto' : 'none';
+    document.documentElement.style.pointerEvents = value;
+    document.body.style.pointerEvents = value;
+    document.body.style.cursor = on ? 'crosshair' : '';
+  }
+
+  private readonly onPagePointerDown = (e: PointerEvent): void => {
+    const burn = this.gpu?.burn;
+    if (!burn?.active) return;
+    burn.ignite(e.clientX, e.clientY, 1);
+    this.burstEmitter.trigger(e.clientX, e.clientY, this.preset.burst * 0.6);
+  };
+
+  private readonly onPageKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && this.gpu?.burn.active) this.gpu.burn.abort();
+  };
+
+  private clearCanvas(): void {
+    const g = this.gpu;
+    if (!g || this.contextLost) return;
+    const gl = g.device.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+
+  /** Leaves the cold idle state (an event may light something). */
+  private wake(): void {
+    this.lastHeatAt = performance.now();
+    if (!this.cold) return;
+    this.cold = false;
+    this.lastTickAt = 0;
+    this.scheduleRaf();
   }
 
   private handlePointerButton(e: PointerButtonEvent): void {
     if (e.type !== 'down' || !this.settings.clickBursts || !this.settings.enabled) return;
     if (!e.inside && !this.ctx.inView(e.x, e.y, this.ctx.radius * 6)) return;
+    this.wake();
     this.burstEmitter.trigger(e.x, e.y, this.preset.burst, e.button);
   }
 
   private handleTestBurst(p: { x: number; y: number; strength: number }): void {
     if (!this.settings.enabled) return;
+    this.wake();
     this.burstEmitter.trigger(p.x, p.y, Number.isFinite(p.strength) ? p.strength : this.preset.burst);
+  }
+
+  private lastKeyFlareAt = 0;
+
+  /** Typing fire (Pro): a small flare on the focused window's frame for each key, at most ~25 per second. */
+  private handleKeyPress(): void {
+    const s = this.settings;
+    if (!s.enabled || !s.typingFire || !this.gpu) return;
+    const now = performance.now();
+    if (now - this.lastKeyFlareAt < 40) return;
+    this.lastKeyFlareAt = now;
+    let x: number;
+    let y: number;
+    if (this.windowEmitter.visible) {
+      const r = this.windowEmitter.rect;
+      x = r.x + Math.random() * r.width;
+      y = r.y;
+    } else if (this.cursor.hasPosition && this.cursor.inside) {
+      x = this.cursor.x + (Math.random() - 0.5) * this.ctx.radius * 4;
+      y = this.cursor.y;
+    } else {
+      return;
+    }
+    if (!this.ctx.inView(x, y, 0)) return;
+    this.wake();
+    this.burstEmitter.trigger(x, y, this.preset.burst * 0.35, 'middle');
   }
 
   private handleActiveWindow(e: ActiveWindowEvent | null): void {
     this.windowEmitter.setTarget(e);
+    if (e?.intersects) this.wake();
   }
 
   private handleDisplay(d: DisplayInfo): void {
@@ -395,9 +595,15 @@ export class App {
 
   private installDomListeners(): void {
     window.addEventListener('resize', () => this.measure());
+    window.addEventListener('pointerdown', this.onPagePointerDown);
+    window.addEventListener('keydown', this.onPageKeyDown);
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
       this.contextLost = true;
+      if (this.gpu?.burn.active) {
+        this.setInteractive(false);
+        this.api.burnDone({ ok: false, aborted: true, error: 'WebGL context lost' });
+      }
       this.gpu = null; // GPU objects are gone; nothing to dispose
       this.log('warn', 'WebGL context lost');
     });
@@ -442,7 +648,7 @@ export class App {
   private readonly frame = (now: number): void => {
     this.rafId = 0;
     if (!this.running) return;
-    const idle = document.hidden || !this.settings.enabled || this.contextLost || !this.gpu;
+    const idle = document.hidden || this.hiddenByHost || !this.settings.enabled || this.contextLost || !this.gpu || this.cold || this.capturing;
     if (idle) {
       this.idleFrame();
       this.scheduleIdle();
@@ -465,6 +671,7 @@ export class App {
     } catch (err) {
       this.log('error', `frame failed: ${describe(err)}`);
     }
+    this.checkCold(now);
     this.frames++;
     this.fpsCounter++;
     if (now - this.lastHudAt > HUD_INTERVAL_MS) {
@@ -473,6 +680,25 @@ export class App {
     }
     this.scheduleRaf();
   };
+
+  private emberAccumulator = 0;
+
+  /** Embers and ash lifting off the burn front (positions from BurnLayer's probe). */
+  private emitBurnEmbers(dt: number): void {
+    const front = this.gpu?.burn.front;
+    if (!front || front.count === 0) return;
+    this.emberAccumulator += Math.min(160, 25 + front.count * 0.8) * dt;
+    const n = Math.floor(this.emberAccumulator);
+    this.emberAccumulator -= n;
+    const rng = this.sparks.random;
+    const cell = this.cssWidth / 64;
+    for (let i = 0; i < n; i++) {
+      const k = Math.floor(rng.next() * front.count);
+      const x = (front.points[k * 2] ?? 0) + rng.range(-cell, cell) * 0.5;
+      const y = (front.points[k * 2 + 1] ?? 0) + rng.range(-cell, cell) * 0.5;
+      this.sparks.emit(x, y, rng.range(-50, 50), rng.range(-240, -60), rng.range(0.6, 1.7));
+    }
+  }
 
   /** Dev hook (`?warmup=N`): advance the simulation N fixed steps before the first visible frame. */
   private runWarmup(): void {
@@ -490,10 +716,19 @@ export class App {
     this.log('info', `warm-up: ran ${n} steps`);
   }
 
-  /** Disabled / hidden: clear everything once, then do nothing. */
+  /** Goes cold once nothing has been lit for COLD_AFTER_MS and no spark is alive. */
+  private checkCold(now: number): void {
+    if (this.lastHeatAt === 0) this.lastHeatAt = now;
+    if (this.look.dark > 0) return; // Mod Torță: the darkness itself must keep being drawn
+    if (this.sparks.count > 0 || now - this.lastHeatAt < COLD_AFTER_MS) return;
+    this.cold = true;
+    this.clearedWhileDisabled = false;
+  }
+
+  /** Disabled / hidden / cold: clear everything once, then do nothing. */
   private idleFrame(): void {
     const g = this.gpu;
-    if (!this.settings.enabled && !this.clearedWhileDisabled && g && !this.contextLost) {
+    if ((!this.settings.enabled || this.cold || this.hiddenByHost) && !this.clearedWhileDisabled && g && !this.contextLost) {
       const gl = g.device.gl;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -514,15 +749,53 @@ export class App {
     this.ctx.dt = dt;
     this.ctx.time = this.time;
     this.driveSynthetic();
-    for (const e of this.emitters) e.update(this.ctx);
-    if (this.settings.sparks) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
-    g.sim.step(dt, this.simParams);
+    this.audio.tick(dt);
+    for (const e of this.emitters) {
+      // Asleep (user away): only events already in flight and a running focus timer keep burning.
+      if (this.power.sleeping && e !== this.burstEmitter && !(e === this.focusEmitter && this.focusEmitter.ticking)) continue;
+      if (e === this.bottomEmitter && this.audioEmitter.wallActive) continue;
+      e.update(this.ctx);
+    }
+    // Ritmul Focului: loudness brightens the glow, bass lifts the flames.
+    const listening = this.settings.audioSource !== 'off';
+    const sens = this.settings.audioSensitivity;
+    this.look.glow = DEFAULT_LOOK.glow * (listening ? this.audioEmitter.glowBoost(sens) : 1);
+    this.simParams.buoyancy = this.baseBuoyancy * (listening ? this.audioEmitter.buoyancyBoost(sens) : 1);
+    this.updateTorch(dt, g.burn.active);
+    const now = performance.now();
+    if (g.burn.active) {
+      g.burn.update(dt, g.sim.temperatureTexture, now);
+      this.emitBurnEmbers(dt);
+      this.lastHeatAt = now;
+    }
+    if (this.queue.count > 0) this.lastHeatAt = now;
+    // Embers left by a burn keep ageing even with sparks off, or they would keep the loop from going cold.
+    if (this.settings.sparks || g.burn.active || this.sparks.count > 0) this.sparks.update(dt, this.cssWidth, this.cssHeight, this.time);
+    g.sim.step(dt, this.simParams, g.burn.source(now));
+  }
+
+  /** Mod Torță: fades the darkness in/out and follows the cursor with the torch. */
+  private updateTorch(dt: number, burning: boolean): void {
+    const s = this.settings;
+    const target = s.torch && s.enabled && !this.power.sleeping && !burning && !this.capturing ? TORCH_DARKNESS : 0;
+    const look = this.look;
+    look.dark += (target - look.dark) * Math.min(1, dt * 2.5);
+    if (Math.abs(target - look.dark) < 0.003) look.dark = target;
+    const c = this.cursor;
+    if (c.hasPosition && c.inside) {
+      look.torchX = c.x / Math.max(1, this.cssWidth);
+      look.torchY = 1 - c.y / Math.max(1, this.cssHeight);
+      look.torchRadius = TORCH_RADIUS;
+    } else {
+      look.torchRadius = 0;
+    }
   }
 
   private render(): void {
     const g = this.gpu;
     if (!g) return;
     const s = this.settings;
+    const now = performance.now();
     g.renderer.render(
       g.sim.temperatureTexture,
       g.sim.width,
@@ -531,9 +804,12 @@ export class App {
       this.canvas.height,
       this.time,
       this.look,
+      g.burn.active
+        ? () => g.burn.draw(this.canvas.width, this.canvas.height, g.sim.temperatureTexture, g.sim.width, g.sim.height, g.renderer.lutTexture, this.time, now)
+        : undefined,
     );
     const c = this.cursor;
-    if (s.cursorMode !== 'off' && c.hasPosition && c.inside) {
+    if (s.cursorMode !== 'off' && c.hasPosition && c.inside && !this.power.sleeping) {
       const speedK = clamp01(c.speed / 1400);
       const r = this.ctx.radius;
       const comet = s.cursorMode === 'comet';
@@ -553,8 +829,8 @@ export class App {
         g.renderer.lutTexture,
       );
     }
-    if (s.sparks) {
-      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, PALETTE_DEFINITIONS[s.palette].spark);
+    if (s.sparks || g.burn.active) {
+      g.sparkRenderer.draw(this.sparks, this.cssWidth, this.cssHeight, this.dpr, resolvePalette(s.palette, s.customColors).spark);
     }
   }
 
@@ -610,7 +886,19 @@ export class App {
     if (s.clickBursts) active.push(`burst(${this.burstEmitter.total})${this.burstEmitter.active ? '*' : ''}`);
     if (s.burnActiveWindow) active.push(`window${this.windowEmitter.visible ? '*' : ''}`);
     if (s.screenBottomFire) active.push('bottom*');
-    const state = !s.enabled ? 'PAUSED' : this.contextLost ? 'CONTEXT LOST' : !g ? 'NO GPU' : document.hidden ? 'HIDDEN' : 'running';
+    const state = !s.enabled
+      ? 'PAUSED'
+      : this.contextLost
+        ? 'CONTEXT LOST'
+        : !g
+          ? 'NO GPU'
+          : document.hidden
+            ? 'HIDDEN'
+            : this.power.sleeping
+              ? `asleep${this.cold ? ' (cold)' : ''}`
+              : this.cold
+                ? 'cold (idle)'
+                : 'running';
     const lines = [
       `prăjeală ${state} · ${this.fps} fps (cap ${s.maxFps}) · frames ${this.frames}${this.env.mock ? ' · mock' : ''}`,
       `sim ${g?.sim.width ?? 0}×${g?.sim.height ?? 0} (scale ${s.simScale}, ${s.pressureIterations} it) · canvas ${this.canvas.width}×${this.canvas.height} @${this.dpr.toFixed(2)}x`,

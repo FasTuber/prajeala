@@ -3,15 +3,20 @@
  * combination, Wayland restrictions…) are logged, never fatal.
  */
 import { globalShortcut } from 'electron';
-import { nextIntensity, type Settings } from '../shared/settings';
+import { nextAllowedIntensity } from '../shared/pro';
+import type { Settings } from '../shared/settings';
 import { createLogger } from './log';
 
 const log = createLogger('shortcuts');
 
 export interface ShortcutActions {
   getSettings(): Settings;
+  /** Pro unlocked (licence or trial): the intensity shortcuts may reach Inferno. */
+  isPro(): boolean;
   updateSettings(patch: Partial<Settings>): void;
   testBurst(): void;
+  /** Arde tot: burn the whole screen. */
+  burn(): void;
   quit(): void;
 }
 
@@ -21,18 +26,23 @@ export const SHORTCUTS = Object.freeze({
   intensityUp: 'CommandOrControl+Shift+Up',
   intensityDown: 'CommandOrControl+Shift+Down',
   testBurst: 'CommandOrControl+Shift+B',
+  burn: 'CommandOrControl+Alt+Shift+F',
 });
 
 export function registerShortcuts(actions: ShortcutActions): string[] {
   const bindings: Array<[string, () => void]> = [
     [SHORTCUTS.toggle, () => actions.updateSettings({ enabled: !actions.getSettings().enabled })],
     [SHORTCUTS.quit, () => actions.quit()],
-    [SHORTCUTS.intensityUp, () => actions.updateSettings({ intensity: nextIntensity(actions.getSettings().intensity, 1) })],
+    [
+      SHORTCUTS.intensityUp,
+      () => actions.updateSettings({ intensity: nextAllowedIntensity(actions.getSettings().intensity, 1, actions.isPro()) }),
+    ],
     [
       SHORTCUTS.intensityDown,
-      () => actions.updateSettings({ intensity: nextIntensity(actions.getSettings().intensity, -1) }),
+      () => actions.updateSettings({ intensity: nextAllowedIntensity(actions.getSettings().intensity, -1, actions.isPro()) }),
     ],
     [SHORTCUTS.testBurst, () => actions.testBurst()],
+    [SHORTCUTS.burn, () => actions.burn()],
   ];
   const registered: string[] = [];
   for (const [accelerator, handler] of bindings) {

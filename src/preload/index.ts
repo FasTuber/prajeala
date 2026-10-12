@@ -5,6 +5,7 @@
  * exactly the listener that was registered.
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type { FocusFrame } from '../shared/focus';
 import {
   IPC,
   type ActiveWindowEvent,
@@ -12,12 +13,16 @@ import {
   type DisplayInfo,
   type HostCapabilities,
   type PointerButtonEvent,
+  type PowerFrame,
   type PrajealaApi,
   type RendererReadyReport,
   type RendererStats,
   type Unsubscribe,
 } from '../shared/ipc';
+import type { AudioFrame } from '../shared/audio-contract';
+import type { BurnDoneReport, BurnStart } from '../shared/burn';
 import type { Settings } from '../shared/settings';
+import type { ZmeuExitReport, ZmeuHomeFrame } from '../shared/zmeu';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
   const listener = (_event: IpcRendererEvent, payload: T): void => {
@@ -45,6 +50,26 @@ const api: PrajealaApi = {
   onDisplay: (cb) => subscribe<DisplayInfo>(IPC.display, cb),
   onCapabilities: (cb) => subscribe<HostCapabilities>(IPC.capabilities, cb),
   onTestBurst: (cb) => subscribe<{ x: number; y: number; strength: number }>(IPC.testBurst, cb),
+  onKeyPress: (cb) => subscribe<null>(IPC.keyPress, () => cb()),
+  onPower: (cb) => subscribe<PowerFrame>(IPC.power, cb),
+  onAudio: (cb) => subscribe<AudioFrame>(IPC.audio, cb),
+  onFocusTimer: (cb) => subscribe<FocusFrame>(IPC.focusTimer, cb),
+  onVisibility: (cb) => subscribe<{ hidden: boolean }>(IPC.visibility, cb),
+  onBurnPrepare: (cb) => subscribe<null>(IPC.burnPrepare, () => cb()),
+  onBurnStart: (cb) => subscribe<BurnStart>(IPC.burnStart, cb),
+  onBurnAbort: (cb) => subscribe<null>(IPC.burnAbort, () => cb()),
+  burnReady: () => {
+    ipcRenderer.send(IPC.burnReady);
+  },
+  burnDone: (report: BurnDoneReport) => {
+    ipcRenderer.send(IPC.burnDone, report);
+  },
+  getZmeuHome: () => ipcRenderer.invoke(IPC.getZmeuHome) as Promise<ZmeuHomeFrame>,
+  onZmeuHome: (cb) => subscribe<ZmeuHomeFrame>(IPC.zmeuHome, cb),
+  onZmeuCall: (cb) => subscribe<{ x: number; y: number }>(IPC.zmeuCall, cb),
+  zmeuExited: (report: ZmeuExitReport) => {
+    ipcRenderer.send(IPC.zmeuExited, { seq: report.seq });
+  },
 
   reportReady: (report: RendererReadyReport) => {
     ipcRenderer.send(IPC.ready, report);

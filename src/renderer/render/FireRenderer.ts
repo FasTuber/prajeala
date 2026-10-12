@@ -21,9 +21,15 @@ export interface RenderLook {
   smoke: number;
   /** Debug view: 0 normal, 1 heat, 2 smoke, 3 glow. */
   view: number;
+  /** Mod Torță: darkness over the desktop, 0 (off) .. 1. */
+  dark: number;
+  /** Torch centre in uv (y up) and radius in screen heights (0 = no torch on this display). */
+  torchX: number;
+  torchY: number;
+  torchRadius: number;
 }
 
-export const DEFAULT_LOOK: RenderLook = { detail: 0.9, glow: 0.3, smoke: 0.14, view: 0 };
+export const DEFAULT_LOOK: RenderLook = { detail: 0.9, glow: 0.3, smoke: 0.14, view: 0, dark: 0, torchX: 0.5, torchY: 0.5, torchRadius: 0 };
 
 export class FireRenderer {
   private readonly composite: Program;
@@ -95,6 +101,8 @@ export class FireRenderer {
     canvasHeight: number,
     time: number,
     look: RenderLook,
+    /** Drawn after the clear and before the fire (Arde tot's burning picture). Leaves blending on. */
+    underlay?: () => void,
   ): void {
     const gl = this.device.gl;
     gl.disable(gl.BLEND);
@@ -120,6 +128,13 @@ export class FireRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    if (underlay) {
+      underlay();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvasWidth, canvasHeight);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    }
     this.composite.use();
     this.composite.uniform2f('uTexel', 1 / simWidth, 1 / simHeight);
     this.composite.uniform1f('uTime', time);
@@ -128,6 +143,8 @@ export class FireRenderer {
     this.composite.uniform1f('uGlow_', look.glow);
     this.composite.uniform1f('uSmoke', look.smoke);
     this.composite.uniform1i('uView', look.view | 0);
+    this.composite.uniform1f('uDark', look.dark);
+    this.composite.uniform3f('uTorch', look.torchX, look.torchY, look.torchRadius);
     this.composite.texture('uTemperature', temperature, 0);
     this.composite.texture('uGlow', this.glowA.texture, 1);
     this.composite.texture('uLut', this.lut, 2);

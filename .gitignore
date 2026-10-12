@@ -22,3 +22,7 @@ Thumbs.db
 
 # smoke test artifacts
 smoke-report.json
+
+# licence signing keys (scripts/license.mjs) — never commit a private key
+*.pem
+keys/

@@ -19,6 +19,10 @@
  *   --linux-transparent-visuals
  *                           Linux only: add --enable-transparent-visuals and
  *                           --disable-gpu-compositing (needed on some X11 setups).
+ *   --settings              open the settings window right away.
+ *   --force-tier=free|pro   development only (ignored in packaged builds): `free`
+ *                           skips the Pro trial (licences still count), `pro`
+ *                           unlocks every Pro feature.
  */
 
 export interface CliOptions {
@@ -36,6 +40,8 @@ export interface CliOptions {
   verbose: boolean;
   rendererUrl: string | null;
   linuxTransparentVisuals: boolean;
+  openSettings: boolean;
+  forceTier: 'free' | 'pro' | null;
 }
 
 export const DEFAULT_CLI: Readonly<CliOptions> = Object.freeze({
@@ -52,6 +58,8 @@ export const DEFAULT_CLI: Readonly<CliOptions> = Object.freeze({
   verbose: false,
   rendererUrl: null,
   linuxTransparentVisuals: false,
+  openSettings: false,
+  forceTier: null,
 });
 
 function clampNumber(value: string | undefined, fallback: number, min: number, max: number): number {
@@ -112,6 +120,12 @@ export function parseCli(argv: readonly string[]): CliOptions {
         break;
       case 'linux-transparent-visuals':
         out.linuxTransparentVisuals = true;
+        break;
+      case 'settings':
+        out.openSettings = true;
+        break;
+      case 'force-tier':
+        out.forceTier = value === 'free' || value === 'pro' ? value : null;
         break;
       default:
         break;

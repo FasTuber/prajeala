@@ -8,6 +8,7 @@
  *   overlays.on('ready', (overlay, report))
  *   overlays.on('stats', (overlay, stats))
  *   overlays.on('log',   (overlay, level, message))
+ *   overlays.on('zmeu-exited', (overlay, report))   // validated ZmeuExitReport
  */
 import { EventEmitter } from 'node:events';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +21,7 @@ import {
   type RendererStats,
 } from '../shared/ipc';
 import type { Settings } from '../shared/settings';
+import { sanitizeZmeuExit, type ZmeuHomeFrame } from '../shared/zmeu';
 import { createLogger, type LogLevel } from './log';
 
 const log = createLogger('overlay');
@@ -33,9 +35,14 @@ export interface OverlayContext {
   debugHud: boolean;
   /** Restrict to one display index. */
   displayIndex: number | null;
+  /** Settings the overlays draw with (already reduced to what the licence allows). */
   getSettings(): Settings;
   updateSettings(patch: unknown): Settings;
   getCapabilities(): HostCapabilities;
+  /** How many displays get an overlay (primary first); Infinity = all. */
+  maxDisplays(): number;
+  /** Zmeul: the home frame for this overlay (answers the renderer's pull at init). */
+  getZmeuHome(overlay: Overlay): ZmeuHomeFrame;
 }
 
 export interface Overlay {
@@ -45,6 +52,8 @@ export interface Overlay {
   loaded: boolean;
   shown: boolean;
   crashes: number;
+  /** Last visibility told to the renderer (hidden overlays must stop simulating). */
+  hostHidden: boolean | null;
 }
 
 export type PayloadFactory<T> = (info: DisplayInfo, overlay: Overlay) => T | undefined;
@@ -57,6 +66,8 @@ export class OverlayManager extends EventEmitter {
   private readonly overlays = new Map<number, Overlay>();
   private rebuildTimer: NodeJS.Timeout | null = null;
   private visible = true;
+  /** Displays whose overlay is hidden regardless of `visible` (game mode). */
+  private suppressed = new Set<number>();
   private started = false;
   private destroyed = false;
 
@@ -126,12 +137,52 @@ export class OverlayManager extends EventEmitter {
     this.visible = visible;
     for (const overlay of this.overlays.values()) {
       if (overlay.window.isDestroyed()) continue;
-      if (visible) {
+      if (visible && !this.suppressed.has(overlay.id)) {
         if (overlay.loaded) this.show(overlay);
       } else if (overlay.window.isVisible()) {
         overlay.window.hide();
         overlay.shown = false;
       }
+      if (!visible || this.suppressed.has(overlay.id)) this.tellHidden(overlay, true);
+    }
+  }
+
+  /** Hides the overlays of these displays (fullscreen app on them) and shows the others again. */
+  setSuppressed(displayIds: ReadonlySet<number>): void {
+    const same = displayIds.size === this.suppressed.size && [...displayIds].every((id) => this.suppressed.has(id));
+    if (same) return;
+    this.suppressed = new Set(displayIds);
+    this.setVisible(this.visible);
+  }
+
+  /** Display bounds (global DIP) of every live overlay. */
+  displayBounds(): Array<{ id: number; bounds: DisplayInfo['bounds'] }> {
+    return this.list().map((o) => ({ id: o.id, bounds: o.info.bounds }));
+  }
+
+  /**
+   * Arde tot: while a burn runs the overlay takes clicks and keys (Esc) itself
+   * instead of passing them to the apps underneath.
+   */
+  setInteractive(overlay: Overlay, on: boolean): void {
+    const win = overlay.window;
+    if (win.isDestroyed()) return;
+    try {
+      if (on) {
+        win.setIgnoreMouseEvents(false);
+        if (process.platform !== 'linux') {
+          win.setFocusable(true);
+          win.focus();
+        }
+      } else {
+        win.setIgnoreMouseEvents(true, { forward: process.platform !== 'linux' });
+        if (process.platform !== 'linux') {
+          win.blur();
+          win.setFocusable(false);
+        }
+      }
+    } catch (err) {
+      log.warn(`setInteractive(${on}) failed:`, err);
     }
   }
 
@@ -186,11 +237,30 @@ export class OverlayManager extends EventEmitter {
     }));
   }
 
+  /** Displays that should have an overlay right now (primary first). */
+  private wantedDisplays(): DisplayInfo[] {
+    const infos = this.describeDisplays().filter((info) => this.ctx.displayIndex === null || info.index === this.ctx.displayIndex);
+    return infos.slice(0, Math.max(0, this.ctx.maxDisplays()));
+  }
+
+  /** Rebuilds only when the set of displays that should burn differs from the current one (licence changes). */
+  syncDisplays(reason: string): void {
+    if (!this.started || this.destroyed) return;
+    const wanted = this.wantedDisplays()
+      .map((d) => d.id)
+      .sort((a, b) => a - b);
+    const current = [...this.overlays.keys()].sort((a, b) => a - b);
+    if (wanted.length !== current.length || wanted.some((id, i) => id !== current[i])) this.scheduleRebuild(reason);
+  }
+
   private createAll(): void {
     if (this.destroyed) return;
-    const infos = this.describeDisplays();
+    const all = this.describeDisplays();
+    const infos = this.wantedDisplays();
+    if (infos.length < all.length && this.ctx.displayIndex === null) {
+      log.info(`free version: fire on the primary display only (${all.length} connected)`);
+    }
     for (const info of infos) {
-      if (this.ctx.displayIndex !== null && info.index !== this.ctx.displayIndex) continue;
       try {
         this.create(info);
       } catch (err) {
@@ -246,7 +316,7 @@ export class OverlayManager extends EventEmitter {
       },
     });
 
-    const overlay: Overlay = { id: info.id, info, window: win, loaded: false, shown: false, crashes: 0 };
+    const overlay: Overlay = { id: info.id, info, window: win, loaded: false, shown: false, crashes: 0, hostHidden: null };
     this.overlays.set(info.id, overlay);
 
     // `forward` (mouse-move passthrough to the page) only exists on Windows/macOS;
@@ -321,15 +391,28 @@ export class OverlayManager extends EventEmitter {
   }
 
   private show(overlay: Overlay): void {
-    if (!this.visible || overlay.window.isDestroyed()) return;
+    if (!this.visible || this.suppressed.has(overlay.id) || overlay.window.isDestroyed()) return;
     if (!overlay.window.isVisible()) overlay.window.showInactive();
     overlay.shown = true;
+    this.tellHidden(overlay, false);
     // Re-assert z-order/bounds after the first show (Windows sometimes resets them).
     overlay.window.setAlwaysOnTop(true, 'screen-saver');
     overlay.window.setBounds(overlay.info.bounds);
   }
 
+  /**
+   * Overlays run with backgroundThrottling off, so a hidden window still looks
+   * visible to its page and would keep simulating: say so explicitly.
+   */
+  private tellHidden(overlay: Overlay, hidden: boolean): void {
+    if (!overlay.loaded || overlay.hostHidden === hidden) return;
+    overlay.hostHidden = hidden;
+    this.sendTo(overlay, IPC.visibility, { hidden });
+  }
+
   private pushInitialState(overlay: Overlay): void {
+    overlay.hostHidden = null;
+    this.tellHidden(overlay, !this.visible || this.suppressed.has(overlay.id));
     const wc = overlay.window.webContents;
     try {
       wc.send(IPC.display, overlay.info);
@@ -349,6 +432,11 @@ export class OverlayManager extends EventEmitter {
       return overlay.info;
     });
     ipcMain.handle(IPC.updateSettings, (_event, patch: unknown) => this.ctx.updateSettings(patch));
+    ipcMain.handle(IPC.getZmeuHome, (event) => {
+      const overlay = this.byWebContents(event.sender);
+      if (!overlay) throw new Error('unknown overlay window');
+      return this.ctx.getZmeuHome(overlay);
+    });
 
     ipcMain.on(IPC.ready, (event: IpcMainEvent, report: unknown) => {
       const overlay = this.byWebContents(event.sender);
@@ -359,6 +447,23 @@ export class OverlayManager extends EventEmitter {
       const overlay = this.byWebContents(event.sender);
       if (!overlay) return;
       this.emit('stats', overlay, sanitizeStats(stats));
+    });
+    ipcMain.on(IPC.zmeuExited, (event: IpcMainEvent, report: unknown) => {
+      const overlay = this.byWebContents(event.sender);
+      const r = sanitizeZmeuExit(report);
+      if (overlay && r) this.emit('zmeu-exited', overlay, r);
+    });
+    ipcMain.on(IPC.burnReady, (event: IpcMainEvent) => {
+      const overlay = this.byWebContents(event.sender);
+      if (overlay) this.emit('burn-ready', overlay);
+    });
+    ipcMain.on(IPC.burnDone, (event: IpcMainEvent, report: unknown) => {
+      const overlay = this.byWebContents(event.sender);
+      if (!overlay) return;
+      const r = (report && typeof report === 'object' ? report : {}) as Record<string, unknown>;
+      const out: { ok: boolean; aborted: boolean; error?: string } = { ok: r.ok === true, aborted: r.aborted === true };
+      if (typeof r.error === 'string' && r.error) out.error = r.error.slice(0, 300);
+      this.emit('burn-done', overlay, out);
     });
     ipcMain.on(IPC.log, (event: IpcMainEvent, entry: unknown) => {
       const overlay = this.byWebContents(event.sender);
@@ -393,11 +498,13 @@ function sanitizeReady(input: unknown): RendererReadyReport {
 
 function sanitizeStats(input: unknown): RendererStats {
   const s = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-  return {
+  const out: RendererStats = {
     frames: num(s.frames),
     fps: num(s.fps),
     simWidth: num(s.simWidth),
     simHeight: num(s.simHeight),
     sparks: num(s.sparks),
   };
+  if (s.zmeu === 0 || s.zmeu === 1 || s.zmeu === 2) out.zmeu = s.zmeu;
+  return out;
 }

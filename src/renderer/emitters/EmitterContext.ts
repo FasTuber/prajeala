@@ -18,6 +18,8 @@ export class EmitterContext {
   /** Canvas size in CSS px. */
   width = 1;
   height = 1;
+  /** Local y (CSS px) of the edge the bottom fire stands on: the top of the taskbar, or the screen bottom. */
+  floor = 1;
   /** Frame delta (s) and wrapped wall time (s). */
   dt = 1 / 60;
   time = 0;

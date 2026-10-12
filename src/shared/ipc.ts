@@ -9,7 +9,14 @@
  * i.e. `local = global - display.bounds.{x,y}`. Global screen coordinates are
  * included for debugging and for cross-display effects.
  */
+import type { AudioFrame, AudioStatus } from './audio-contract';
+import type { BurnDoneReport, BurnMode, BurnStart } from './burn';
+import type { FocusFrame, FocusPhase } from './focus';
+import type { Lang } from './i18n';
+import type { LicenseActionResult, LicenseStatus } from './license';
+import type { ExternalLink } from './product';
 import type { Settings } from './settings';
+import type { ZmeuExitReport, ZmeuHomeFrame } from './zmeu';
 
 export interface Rect {
   x: number;
@@ -93,6 +100,14 @@ export interface RendererStats {
   simWidth: number;
   simHeight: number;
   sparks: number;
+  /** Zmeul renderer: 0 not built, 1 ok, 2 shader compile error (the fire keeps running). */
+  zmeu?: 0 | 1 | 2;
+}
+
+/** What the renderer needs from the power governor. */
+export interface PowerFrame {
+  /** Stop lighting new fire; let the field die down and go idle once cold. */
+  sleeping: boolean;
 }
 
 /** Capabilities detected by the main process (native optional modules). */
@@ -114,17 +129,41 @@ export const IPC = {
   capabilities: 'prajeala:capabilities',
   /** Ask the renderer to emit a one-off burst at local coordinates (used by tray "test" and smoke). */
   testBurst: 'prajeala:test-burst',
+  /** A key was pressed somewhere (typing fire). Carries no key data. */
+  keyPress: 'prajeala:key-press',
+  /** Power governor state (sleeping / eco). */
+  power: 'prajeala:power',
+  /** Arde tot: clear the fire for a capture, start burning a picture, stop. */
+  burnPrepare: 'prajeala:burn-prepare',
+  burnStart: 'prajeala:burn-start',
+  burnAbort: 'prajeala:burn-abort',
+  /** Ritmul Focului: one analysed audio frame (~60 Hz while listening). */
+  audio: 'prajeala:audio',
+  /** The window was hidden (pause, game mode) or shown again: stop / resume simulating. */
+  visibility: 'prajeala:visibility',
+  /** Termen limită: focus timer state (on change + every few seconds while running). */
+  focusTimer: 'prajeala:focus-timer',
+  /** Zmeul: is the dragon on this display, and how does it arrive / leave (ZmeuHomeFrame). */
+  zmeuHome: 'prajeala:zmeu-home',
+  /** Zmeul: "call the dragon" to these local coordinates (sent to the home overlay only). */
+  zmeuCall: 'prajeala:zmeu-call',
 
   // renderer → main (send)
   ready: 'prajeala:ready',
+  burnReady: 'prajeala:burn-ready',
+  burnDone: 'prajeala:burn-done',
   stats: 'prajeala:stats',
   log: 'prajeala:log',
+  /** Zmeul: the dragon finished flying off this display (handoff phase one). */
+  zmeuExited: 'prajeala:zmeu-exited',
 
   // renderer → main (invoke)
   getSettings: 'prajeala:get-settings',
   getDisplay: 'prajeala:get-display',
   getCapabilities: 'prajeala:get-capabilities',
   updateSettings: 'prajeala:update-settings',
+  /** Zmeul: the current home frame (pulled once at init: pushes before subscribe() are lost). */
+  getZmeuHome: 'prajeala:get-zmeu-home',
 } as const;
 
 export type Unsubscribe = () => void;
@@ -143,14 +182,129 @@ export interface PrajealaApi {
   onDisplay(cb: (d: DisplayInfo) => void): Unsubscribe;
   onCapabilities(cb: (c: HostCapabilities) => void): Unsubscribe;
   onTestBurst(cb: (p: { x: number; y: number; strength: number }) => void): Unsubscribe;
+  onKeyPress(cb: () => void): Unsubscribe;
+  onPower(cb: (p: PowerFrame) => void): Unsubscribe;
+  onBurnPrepare(cb: () => void): Unsubscribe;
+  onBurnStart(cb: (p: BurnStart) => void): Unsubscribe;
+  onBurnAbort(cb: () => void): Unsubscribe;
+  onAudio(cb: (frame: AudioFrame) => void): Unsubscribe;
+  onFocusTimer(cb: (frame: FocusFrame) => void): Unsubscribe;
+  onVisibility(cb: (v: { hidden: boolean }) => void): Unsubscribe;
+  burnReady(): void;
+  burnDone(report: BurnDoneReport): void;
+  getZmeuHome(): Promise<ZmeuHomeFrame>;
+  onZmeuHome(cb: (frame: ZmeuHomeFrame) => void): Unsubscribe;
+  onZmeuCall(cb: (p: { x: number; y: number }) => void): Unsubscribe;
+  zmeuExited(report: ZmeuExitReport): void;
 
   reportReady(report: RendererReadyReport): void;
   reportStats(stats: RendererStats): void;
   log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void;
 }
 
+// ───────────────────────────── settings window ─────────────────────────────
+
+/** Everything the settings window renders. Pushed again after every change. */
+export interface UiState {
+  /** Stored settings (the user's choices, Pro ones included). */
+  settings: Settings;
+  /** What the overlays actually draw (Pro choices replaced when Pro is missing). */
+  effective: Settings;
+  license: LicenseStatus;
+  capabilities: HostCapabilities;
+  version: string;
+  platform: string;
+  /** Number of connected displays. */
+  displays: number;
+  lang: Lang;
+  product: { name: string; priceLabel: string; trialDays: number; hasSponsor: boolean };
+  /** Power governor status for the settings window. */
+  power: { sleeping: boolean; paused: boolean; eco: boolean; reason: string; gameDisplays: number };
+  /** Ritmul Focului capture state and a coarse live level (0..1) for the meter. */
+  audio: { status: AudioStatus; source: 'system' | 'mic' | null; level: number; bands: number[]; detail?: string };
+  /** Termen limită: the current focus session (remaining time at the moment the state was built). */
+  focus: { phase: FocusPhase; remainingMs: number; durationMs: number };
+}
+
+/** Settings window → main: focus timer controls. */
+export type FocusAction = { type: 'start'; minutes: number } | { type: 'pause' } | { type: 'resume' } | { type: 'cancel' };
+
+/**
+ * Media host (hidden window that captures and analyses audio) ↔ main.
+ * The host has its own preload (window.prajealaMedia) and session partition.
+ */
+export const MEDIA_IPC = {
+  // main → host
+  start: 'prajeala-media:start',
+  stop: 'prajeala-media:stop',
+  sensitivity: 'prajeala-media:sensitivity',
+  // host → main
+  frame: 'prajeala-media:frame',
+  status: 'prajeala-media:status',
+} as const;
+
+export interface MediaStartRequest {
+  source: 'system' | 'mic';
+  /** 0..1 */
+  sensitivity: number;
+}
+
+/** API exposed to the media host page on `window.prajealaMedia`. */
+export interface PrajealaMediaApi {
+  onStart(cb: (req: MediaStartRequest) => void): Unsubscribe;
+  onStop(cb: () => void): Unsubscribe;
+  onSensitivity(cb: (value: number) => void): Unsubscribe;
+  sendFrame(frame: AudioFrame): void;
+  sendStatus(report: { status: AudioStatus; source: 'system' | 'mic' | null; detail?: string }): void;
+}
+
+/** Which part of the window to bring forward when it opens. */
+export type UiFocus = 'pro' | 'welcome' | null;
+
+export const UI_IPC = {
+  // window → main (invoke)
+  getState: 'prajeala-ui:get-state',
+  updateSettings: 'prajeala-ui:update-settings',
+  activate: 'prajeala-ui:activate',
+  deactivate: 'prajeala-ui:deactivate',
+  // window → main (send)
+  openLink: 'prajeala-ui:open-link',
+  openSettingsFile: 'prajeala-ui:open-settings-file',
+  burn: 'prajeala-ui:burn',
+  focusAction: 'prajeala-ui:focus-action',
+  /** main → window: live audio level + bands for the meter (~15 Hz, only while open). */
+  audioLevel: 'prajeala-ui:audio-level',
+  testBurst: 'prajeala-ui:test-burst',
+  /** Zmeul: "call the dragon" to the cursor. */
+  zmeuCall: 'prajeala-ui:zmeu-call',
+  ready: 'prajeala-ui:ready',
+  // main → window
+  state: 'prajeala-ui:state',
+  focus: 'prajeala-ui:focus',
+} as const;
+
+/** API exposed to the settings window on `window.prajealaUi` (separate preload: overlays never see it). */
+export interface PrajealaUiApi {
+  getState(): Promise<UiState>;
+  updateSettings(patch: Partial<Settings>): Promise<UiState>;
+  activate(key: string): Promise<LicenseActionResult>;
+  deactivate(): Promise<LicenseActionResult>;
+  openLink(link: ExternalLink): void;
+  openSettingsFile(): void;
+  testBurst(): void;
+  burn(mode: BurnMode): void;
+  focusAction(action: FocusAction): void;
+  zmeuCall(): void;
+  reportReady(report: { ok: boolean; error?: string }): void;
+  onState(cb: (state: UiState) => void): Unsubscribe;
+  onFocus(cb: (focus: UiFocus) => void): Unsubscribe;
+  onAudioLevel(cb: (level: { level: number; bands: number[] }) => void): Unsubscribe;
+}
+
 declare global {
   interface Window {
     prajeala: PrajealaApi;
+    prajealaUi: PrajealaUiApi;
+    prajealaMedia: PrajealaMediaApi;
   }
 }

@@ -4,47 +4,55 @@
  */
 import { Menu, Tray, nativeImage, type MenuItemConstructorOptions, type NativeImage } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
+import {
+  CURSOR_LABELS,
+  INTENSITY_LABELS,
+  QUALITY_LABELS,
+  QUALITY_PRESETS,
+  paletteLabel,
+  translator,
+  type Lang,
+} from '../shared/i18n';
 import type { HostCapabilities } from '../shared/ipc';
-import { PALETTE_DEFINITIONS } from '../shared/palettes';
-import { CURSOR_MODES, INTENSITIES, PALETTES, type Settings } from '../shared/settings';
+import type { LicenseStatus } from '../shared/license';
+import { FOCUS_PRESETS_MIN, type FocusPhase } from '../shared/focus';
+import { isIntensityLocked, isPaletteLocked } from '../shared/pro';
+import { SCENES, SCENE_EMOJI, activeScene, sceneNeedsPro, scenePatch, type Scene } from '../shared/scenes';
+import { PRODUCT } from '../shared/product';
+import { CURSOR_MODES, INTENSITIES, PALETTES, ZMEU_TEMPERS, type Settings, type ZmeuTemper } from '../shared/settings';
 import { createLogger } from './log';
 import { trayAssetPath } from './paths';
 
 const log = createLogger('tray');
 
-export const TRAY_TOOLTIP = 'Prăjeală — foc pe ecran';
-
 /** 16×16 flame PNG used when assets/tray/* are missing (keeps the app usable from a bare checkout). */
 const FALLBACK_ICON_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAhElEQVR42s2TIRKAMAwE+4h7HY/AYDAYDAaDwWAwGB7GNw5FmwTCtDMIOrMqe+sawm8fa1BSHmhASdm4BZ/IG3fgG+/jHszBDwxg5Kg04vY8HsGIHV8I5x6YwIgXEI4ez6DCCxgvBRZQ4QWMlwIrqPACxkuBDVR4AeOlwA4qvIDxPvl0J24EgbDFTAGYAAAAAElFTkSuQmCC';
 
-const INTENSITY_LABELS: Record<Settings['intensity'], string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  inferno: 'Inferno',
-};
-
-const CURSOR_LABELS: Record<Settings['cursorMode'], string> = {
-  off: 'Off',
-  halo: 'Halo',
-  trail: 'Trail',
-  comet: 'Comet',
-};
-
 const FPS_CHOICES = [30, 60, 120, 144] as const;
-const QUALITY_CHOICES: ReadonlyArray<{ label: string; simScale: number }> = [
-  { label: 'Low', simScale: 0.15 },
-  { label: 'Medium', simScale: 0.25 },
-  { label: 'High', simScale: 0.4 },
-  { label: 'Ultra', simScale: 0.6 },
-];
 
 export interface TrayActions {
   getSettings(): Settings;
   updateSettings(patch: Partial<Settings>): void;
   getCapabilities(): HostCapabilities;
+  getLicense(): LicenseStatus;
+  /** Short state suffix for the tooltip ('' when burning normally). */
+  getStatus(): string;
+  lang: Lang;
   testBurst(): void;
+  /** Arde tot (screen / focused window / an image the user picks). */
+  burn(mode: 'screen' | 'window' | 'image'): void;
+  /** Termen limită: the focus timer (label = remaining time, '' when idle). */
+  focus: {
+    state(): { phase: FocusPhase; label: string };
+    start(minutes: number): void;
+    togglePause(): void;
+    cancel(): void;
+  };
+  /** Zmeul: "call the dragon" to the cursor. */
+  zmeuCall(): void;
+  /** Opens the settings window; `pro` scrolls to the Prăjeală Pro card. */
+  openSettingsWindow(focus?: 'pro'): void;
   openSettingsFile(): void;
   quit(): void;
 }
@@ -60,7 +68,7 @@ export class TrayController {
     try {
       const icon = loadTrayIcon();
       this.tray = new Tray(icon);
-      this.tray.setToolTip(TRAY_TOOLTIP);
+      this.tray.setToolTip(translator(this.actions.lang)('tooltip'));
       this.tray.on('click', () => {
         // Windows/Linux: left click opens the menu as well.
         if (process.platform !== 'darwin') this.tray?.popUpContextMenu();
@@ -75,13 +83,15 @@ export class TrayController {
     }
   }
 
-  /** Rebuilds the context menu from the current settings/capabilities. */
+  /** Rebuilds the context menu from the current settings/capabilities/licence. */
   refresh(): void {
     if (!this.tray) return;
     try {
       this.tray.setContextMenu(Menu.buildFromTemplate(this.buildTemplate()));
+      const t = translator(this.actions.lang);
       const s = this.actions.getSettings();
-      this.tray.setToolTip(s.enabled ? TRAY_TOOLTIP : `${TRAY_TOOLTIP} (paused)`);
+      const status = s.enabled ? this.actions.getStatus() : t('paused');
+      this.tray.setToolTip(status ? `${t('tooltip')} (${status})` : t('tooltip'));
     } catch (err) {
       log.warn('menu rebuild failed:', err);
     }
@@ -98,9 +108,19 @@ export class TrayController {
   }
 
   buildTemplate(): MenuItemConstructorOptions[] {
+    const lang = this.actions.lang;
+    const t = translator(lang);
     const s = this.actions.getSettings();
     const caps = this.actions.getCapabilities();
+    const license = this.actions.getLicense();
+    const pro = license.pro;
     const set = (patch: Partial<Settings>) => () => this.actions.updateSettings(patch);
+    const toggle = (
+      key: 'clickBursts' | 'burnActiveWindow' | 'screenBottomFire' | 'sparks' | 'showDebugHud' | 'launchAtLogin' | 'gameMode' | 'idleSleep',
+    ) => () =>
+      this.actions.updateSettings({ [key]: !this.actions.getSettings()[key] });
+    const upsell = () => this.actions.openSettingsWindow('pro');
+    const locked = (label: string): MenuItemConstructorOptions => ({ label: t('proLocked', { label }), click: upsell });
     // Shortcut hints only: the real bindings live in shortcuts.ts. GTK asserts when a
     // tray item carries an accelerator, so the hint goes into the label on Linux.
     const hint = (label: string, accelerator: string): Pick<MenuItemConstructorOptions, 'label' | 'accelerator' | 'registerAccelerator'> =>
@@ -108,26 +128,82 @@ export class TrayController {
         ? { label: `${label}  (${accelerator.replace('CommandOrControl', 'Ctrl')})` }
         : { label, accelerator, registerAccelerator: false };
 
-    const intensity: MenuItemConstructorOptions[] = INTENSITIES.map((value) => ({
-      label: INTENSITY_LABELS[value],
-      type: 'radio',
-      checked: s.intensity === value,
-      click: set({ intensity: value }),
-    }));
+    const intensity: MenuItemConstructorOptions[] = INTENSITIES.map((value) =>
+      isIntensityLocked(value, pro)
+        ? locked(INTENSITY_LABELS[lang][value])
+        : { label: INTENSITY_LABELS[lang][value], type: 'radio', checked: s.intensity === value, click: set({ intensity: value }) },
+    );
 
-    const palette: MenuItemConstructorOptions[] = PALETTES.map((value) => ({
-      label: PALETTE_DEFINITIONS[value].label,
-      type: 'radio',
-      checked: s.palette === value,
-      click: set({ palette: value }),
-    }));
+    const palette: MenuItemConstructorOptions[] = PALETTES.map((value) =>
+      isPaletteLocked(value, pro)
+        ? locked(paletteLabel(lang, value))
+        : { label: paletteLabel(lang, value), type: 'radio', checked: s.palette === value, click: set({ palette: value }) },
+    );
 
     const cursor: MenuItemConstructorOptions[] = CURSOR_MODES.map((value) => ({
-      label: CURSOR_LABELS[value],
+      label: CURSOR_LABELS[lang][value],
       type: 'radio',
       checked: s.cursorMode === value,
       click: set({ cursorMode: value }),
     }));
+
+    const audioLabels = { off: t('audioOff'), system: t('audioSystem'), mic: t('audioMic') } as const;
+    const audio: MenuItemConstructorOptions[] = (['off', 'system', 'mic'] as const).map((value) => ({
+      label: audioLabels[value],
+      type: 'radio',
+      checked: s.audioSource === value,
+      click: set({ audioSource: value }),
+    }));
+
+    const sceneLabels: Record<Scene, string> = {
+      classic: t('sceneClassic'),
+      hearth: t('sceneHearth'),
+      subtle: t('sceneSubtle'),
+      party: t('sceneParty'),
+      inferno: t('sceneInferno'),
+      haunted: t('sceneHaunted'),
+    };
+    // Radio state follows what actually burns (scenes never touch the keys the power profile changes).
+    const current = activeScene(s);
+    const scenes: MenuItemConstructorOptions[] = SCENES.map((scene) => {
+      const label = `${SCENE_EMOJI[scene]} ${sceneLabels[scene]}`;
+      return sceneNeedsPro(scene) && !pro
+        ? locked(label)
+        : { label, type: 'radio', checked: current === scene, click: () => this.actions.updateSettings(scenePatch(scene, pro)) };
+    });
+
+    // Zmeul (Pro): on/off, temper, and "call" while it is out.
+    const temperLabels: Record<ZmeuTemper, string> = { calm: t('zmeuCalm'), playful: t('zmeuPlayful'), wild: t('zmeuWild') };
+    const zmeu: MenuItemConstructorOptions = pro
+      ? {
+          label: `🐉 ${t('zmeu')}`,
+          submenu: [
+            { label: t('zmeu'), type: 'checkbox', checked: s.zmeu, click: () => this.actions.updateSettings({ zmeu: !this.actions.getSettings().zmeu }) },
+            { type: 'separator' },
+            ...ZMEU_TEMPERS.map(
+              (value): MenuItemConstructorOptions => ({ label: temperLabels[value], type: 'radio', checked: s.zmeuTemper === value, click: set({ zmeuTemper: value }) }),
+            ),
+            { type: 'separator' },
+            { label: `🐉 ${t('zmeuCall')}`, enabled: s.enabled && s.zmeu, click: () => this.actions.zmeuCall() },
+          ],
+        }
+      : locked(`🐉 ${t('zmeu')}`);
+
+    const fs = this.actions.focus.state();
+    const focusItems: MenuItemConstructorOptions[] =
+      fs.phase === 'running' || fs.phase === 'paused'
+        ? [
+            { label: fs.phase === 'paused' ? t('focusResume') : t('focusPause'), click: () => this.actions.focus.togglePause() },
+            { label: t('focusStop'), click: () => this.actions.focus.cancel() },
+          ]
+        : FOCUS_PRESETS_MIN.map((n) => ({
+            label: `${t('focusStart')}: ${t('focusMinutes', { n })}`,
+            enabled: fs.phase === 'idle',
+            click: () => {
+              this.actions.updateSettings({ focusMinutes: n });
+              this.actions.focus.start(n);
+            },
+          }));
 
     const fps: MenuItemConstructorOptions[] = FPS_CHOICES.map((value) => ({
       label: `${value} fps`,
@@ -136,70 +212,88 @@ export class TrayController {
       click: set({ maxFps: value }),
     }));
 
-    const quality: MenuItemConstructorOptions[] = QUALITY_CHOICES.map((q) => ({
-      label: `${q.label} (${q.simScale})`,
+    const quality: MenuItemConstructorOptions[] = QUALITY_PRESETS.map((q) => ({
+      label: `${QUALITY_LABELS[lang][q.key]} (${q.simScale})`,
       type: 'radio',
       checked: Math.abs(s.simScale - q.simScale) < 1e-6,
       click: set({ simScale: q.simScale }),
     }));
 
+    const status: MenuItemConstructorOptions =
+      license.tier === 'pro'
+        ? { label: t('trayPro'), enabled: false }
+        : license.tier === 'trial'
+          ? { label: t('trayTrial', { days: license.trialDaysLeft }), click: upsell }
+          : { label: t('trayGetPro', { price: PRODUCT.priceLabel }), click: upsell };
+
     return [
+      status,
+      { type: 'separator' },
       {
-        ...hint(s.enabled ? 'Pause' : 'Resume', 'CommandOrControl+Shift+F'),
+        ...hint(s.enabled ? t('pause') : t('resume'), 'CommandOrControl+Shift+F'),
         type: 'checkbox',
         checked: s.enabled,
         click: () => this.actions.updateSettings({ enabled: !this.actions.getSettings().enabled }),
       },
       { type: 'separator' },
-      { label: 'Intensity', submenu: intensity },
-      { label: 'Palette', submenu: palette },
-      { label: 'Cursor fire', submenu: cursor },
+      { label: `🎬 ${t('scenes')}`, submenu: scenes },
+      { label: t('intensity'), submenu: intensity },
+      { label: t('palette'), submenu: palette },
+      { label: t('cursorFire'), submenu: cursor },
+      { label: `🎵 ${t('trayAudio')}`, submenu: audio },
+      { label: `⏳ ${fs.label ? t('trayFocusRunning', { time: fs.label }) : t('trayFocus')}`, submenu: focusItems },
       {
-        label: caps.globalClicks ? 'Click bursts' : 'Click bursts (needs uiohook)',
+        label: caps.globalClicks ? t('clickBursts') : t('clickBurstsUnavailable'),
         type: 'checkbox',
         checked: s.clickBursts,
         enabled: caps.globalClicks,
-        click: () => this.actions.updateSettings({ clickBursts: !this.actions.getSettings().clickBursts }),
+        click: toggle('clickBursts'),
       },
       {
-        label: caps.activeWindow ? 'Burn active window' : 'Burn active window (needs get-windows)',
+        label: caps.activeWindow ? t('burnActiveWindow') : t('burnActiveWindowUnavailable'),
         type: 'checkbox',
         checked: s.burnActiveWindow,
         enabled: caps.activeWindow,
-        click: () => this.actions.updateSettings({ burnActiveWindow: !this.actions.getSettings().burnActiveWindow }),
+        click: toggle('burnActiveWindow'),
       },
+      { label: t('screenBottomFire'), type: 'checkbox', checked: s.screenBottomFire, click: toggle('screenBottomFire') },
+      pro
+        ? { label: `🔦 ${t('torch')}`, type: 'checkbox', checked: s.torch, click: () => this.actions.updateSettings({ torch: !this.actions.getSettings().torch }) }
+        : locked(`🔦 ${t('torch')}`),
+      zmeu,
+      { label: t('sparks'), type: 'checkbox', checked: s.sparks, click: toggle('sparks') },
+      { label: t('debugHud'), type: 'checkbox', checked: s.showDebugHud, click: toggle('showDebugHud') },
+      { label: t('idleSleep'), type: 'checkbox', checked: s.idleSleep, click: toggle('idleSleep') },
       {
-        label: 'Screen bottom fire',
+        label: t('gameMode'),
         type: 'checkbox',
-        checked: s.screenBottomFire,
-        click: () => this.actions.updateSettings({ screenBottomFire: !this.actions.getSettings().screenBottomFire }),
+        checked: s.gameMode,
+        enabled: caps.activeWindow,
+        click: toggle('gameMode'),
       },
+      { label: t('fps'), submenu: fps },
+      { label: t('quality'), submenu: quality },
       {
-        label: 'Sparks',
-        type: 'checkbox',
-        checked: s.sparks,
-        click: () => this.actions.updateSettings({ sparks: !this.actions.getSettings().sparks }),
-      },
-      {
-        label: 'Debug HUD',
-        type: 'checkbox',
-        checked: s.showDebugHud,
-        click: () => this.actions.updateSettings({ showDebugHud: !this.actions.getSettings().showDebugHud }),
-      },
-      { label: 'FPS', submenu: fps },
-      { label: 'Quality', submenu: quality },
-      {
-        label: 'Launch at login',
+        label: t('launchAtLogin'),
         type: 'checkbox',
         checked: s.launchAtLogin,
         enabled: process.platform !== 'linux',
-        click: () => this.actions.updateSettings({ launchAtLogin: !this.actions.getSettings().launchAtLogin }),
+        click: toggle('launchAtLogin'),
       },
       { type: 'separator' },
-      { ...hint('Test burst', 'CommandOrControl+Shift+B'), click: () => this.actions.testBurst() },
-      { label: 'Open settings file', click: () => this.actions.openSettingsFile() },
+      { ...hint(`🔥 ${t('burnScreen')}`, 'CommandOrControl+Alt+Shift+F'), click: () => this.actions.burn('screen') },
+      {
+        label: t('burnMore'),
+        submenu: [
+          { label: t('burnWindow'), enabled: caps.activeWindow, click: () => this.actions.burn('window') },
+          { label: t('burnImage'), click: () => this.actions.burn('image') },
+        ],
+      },
+      { ...hint(t('testBurst'), 'CommandOrControl+Shift+B'), click: () => this.actions.testBurst() },
+      { label: t('openSettingsWindow'), click: () => this.actions.openSettingsWindow() },
+      { label: t('openSettingsFile'), click: () => this.actions.openSettingsFile() },
       { type: 'separator' },
-      { ...hint('Quit Prăjeală', 'CommandOrControl+Shift+Q'), click: () => this.actions.quit() },
+      { ...hint(t('quit'), 'CommandOrControl+Shift+Q'), click: () => this.actions.quit() },
     ];
   }
 }
